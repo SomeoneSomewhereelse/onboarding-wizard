@@ -7,8 +7,11 @@ sections 5-6.
 from __future__ import annotations
 
 import dataclasses
+import logging
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 RENDER_API_BASE = "https://api.render.com/v1"
 
@@ -29,7 +32,11 @@ RenderValidation = RenderKeyValid | RenderKeyInvalid
 async def validate_key(api_key: str) -> RenderValidation:
     """One cheap read call (GET /owners) to confirm api_key is a live Render
     API key. Never logs or returns the key itself — only a boolean verdict
-    and, on success, the display name of the account it belongs to."""
+    and, on success, the display name of the account it belongs to. Logs
+    only the structural outcome (status code / outcome enum, never the
+    key) so a production report of "validation keeps failing" can
+    distinguish a wave of invalid-key submissions from a genuine Render
+    outage."""
     try:
         async with httpx.AsyncClient(base_url=RENDER_API_BASE, timeout=10.0) as client:
             response = await client.get(
@@ -37,20 +44,26 @@ async def validate_key(api_key: str) -> RenderValidation:
                 headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
             )
     except httpx.HTTPError:
+        logger.info("render key validation: render_unreachable (network error)")
         return RenderKeyInvalid(reason="render_unreachable")
 
     if response.status_code in (401, 403):
+        logger.info("render key validation: invalid (%d)", response.status_code)
         return RenderKeyInvalid(reason="invalid_key")
     if response.status_code != 200:
+        logger.info("render key validation: render_unreachable (%d)", response.status_code)
         return RenderKeyInvalid(reason="render_unreachable")
 
     try:
         body = response.json()
         if not body:
+            logger.info("render key validation: invalid (empty owners list)")
             return RenderKeyInvalid(reason="invalid_key")
         owner_name = body[0]["owner"]["name"]
     except (ValueError, KeyError, IndexError, TypeError):
+        logger.info("render key validation: render_unreachable (malformed response)")
         return RenderKeyInvalid(reason="render_unreachable")
+    logger.info("render key validation: valid")
     return RenderKeyValid(owner_name=owner_name)
 
 
@@ -103,11 +116,11 @@ async def _resolve_owner_id(client: httpx.AsyncClient, api_key: str) -> httpx.Re
 async def create_service(api_key: str, repo_url: str, name: str) -> RenderServiceCreation:
     """Create a free-plan Docker web service from repo_url, with every env
     var left blank -- the visitor's later frames fill them in via
-    push_env_vars(). Mirrors bot/Dockerfile's own build shape
-    (buildFilter/healthCheckPath match render.yaml's conventions; the
-    dockerfilePath points at bot/Dockerfile specifically, since this
-    project's own render.yaml builds onboarding/Dockerfile instead -- see
-    the 2026-08-29 project-restructure design spec). Never derives the returned
+    push_env_vars(). Mirrors the sibling review-engine project's own
+    bot/Dockerfile build shape (buildFilter/healthCheckPath match
+    render.yaml's conventions; the dockerfilePath points at bot/Dockerfile
+    specifically, since this project's own render.yaml builds ./Dockerfile
+    instead -- see the 2026-08-29 project-restructure design spec). Never derives the returned
     URL from `name`: Render may normalize it server-side, and a live call
     confirmed the create response carries no `service.url` field at all --
     the URL is built from the response's own `service.slug`.
@@ -191,8 +204,9 @@ RenderEnvVarsPush = RenderEnvVarsPushed | RenderEnvVarsPushFailed
 async def push_env_vars(api_key: str, service_id: str, values: dict[str, str]) -> RenderEnvVarsPush:
     """Push every (key, value) in `values`, one PUT per key -- never the
     bulk PUT /env-vars endpoint, which replaces the service's whole env-var
-    list (same reasoning bot/scripts/deploy.py::sync_env() already documents).
-    Stops at the first failure and reports which keys succeeded before it;
+    list (same reasoning the sibling review-engine project's
+    deploy.py::sync_env() already documents). Stops at the first failure
+    and reports which keys succeeded before it;
     dict iteration order controls push order.
     """
     pushed: list[str] = []
@@ -236,8 +250,9 @@ RenderDeployTrigger = RenderDeployTriggered | RenderDeployTriggerFailed
 
 async def trigger_deploy(api_key: str, service_id: str) -> RenderDeployTrigger:
     """POST an empty-body deploy trigger. Pushing env vars does not
-    auto-deploy (bot/scripts/deploy.py::_trigger_and_wait's own docstring), so
-    this is what actually makes the pushed values take effect."""
+    auto-deploy (the sibling review-engine project's
+    deploy.py::_trigger_and_wait's own docstring), so this is what actually
+    makes the pushed values take effect."""
     try:
         async with httpx.AsyncClient(base_url=RENDER_API_BASE, timeout=15.0) as client:
             response = await client.post(
@@ -279,7 +294,7 @@ async def poll_deploy_status(
     api_key: str, service_id: str, deploy_id: str
 ) -> RenderDeployStatusResult:
     """One status check -- never loops or blocks itself. The browser's own
-    polling loop (onboarding/static/index.html) calls the router endpoint
+    polling loop (static/index.html) calls the router endpoint
     wrapping this repeatedly; see design spec section 5c step 11."""
     try:
         async with httpx.AsyncClient(base_url=RENDER_API_BASE, timeout=15.0) as client:

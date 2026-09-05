@@ -1,6 +1,7 @@
 """Tests for the onboarding wizard's theme/language/RTL controls — mirrors
-dashboard/static/dashboard.html's existing implementation (design doc section 7).
-Content-substring checks, same convention as tests/test_dashboard_page.py."""
+the sibling review-engine project's own dashboard.html implementation
+(design doc section 7). Content-substring checks, same convention that
+project's dashboard page tests use."""
 from __future__ import annotations
 
 from httpx import ASGITransport, AsyncClient

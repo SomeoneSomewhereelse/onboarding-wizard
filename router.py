@@ -1,4 +1,4 @@
-"""onboarding/router.py — the wizard's only HTTP surface: GET / (the static
+"""router.py — the wizard's only HTTP surface: GET / (the static
 page) and one relay endpoint per external service. Every relay endpoint
 returns a verdict, never the credential it was given.
 """
@@ -79,7 +79,7 @@ class RenderKeyRequest(BaseModel):
 
 class GithubValidateAppRequest(BaseModel):
     # App ID + private key are pasted in by the visitor after hand-creating
-    # the App in GitHub's UI (see onboarding/CLAUDE.md) -- validate_app()
+    # the App in GitHub's UI (see CLAUDE.md) -- validate_app()
     # reads the App's actual live configuration back from GitHub rather
     # than trusting anything about how it was created.
     app_id: int = Field(gt=0)
@@ -228,7 +228,7 @@ async def get_session_state(request: Request) -> dict:
     distinct UI frames (render-key, render-service, render-deploy's
     pending_deploy_id) and "supabase" has a genuine in-between state
     (OAuth done, project not yet created) that isn't just "locked" or
-    "complete". Never echoes a credential value -- see root CLAUDE.md's
+    "complete". Never echoes a credential value -- see CLAUDE.md's
     secret-handling section and this file's own module docstring."""
     session_id = _get_session_id(request)
     if session_id is None:
@@ -562,7 +562,7 @@ async def create_uptimerobot_monitor(
 async def delete_uptimerobot_monitor(request: Request) -> dict:
     """Best-effort cleanup, called when an earlier frame change (render-key
     or render-service) invalidates a monitor a visitor already created for
-    the old service URL -- see onboarding/static/index.html's
+    the old service URL -- see static/index.html's
     cleanupOrphanedUptimeMonitor(). Session-backed like every other
     post-redesign endpoint -- the UptimeRobot API key is never resent from
     the browser."""

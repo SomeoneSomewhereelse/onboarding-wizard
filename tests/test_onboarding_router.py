@@ -1,4 +1,4 @@
-"""Tests for onboarding/router.py — the JSON contract for
+"""Tests for router.py — the JSON contract for
 POST /api/render/validate-key never echoes the submitted key, and GET /
 serves the wizard page. See design doc section 5."""
 

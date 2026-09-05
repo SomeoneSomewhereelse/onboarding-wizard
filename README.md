@@ -54,6 +54,9 @@ for the full session design.
 
 This wizard provisions deployments of a separate PR-review bot+dashboard
 project, which lives in its own repository — not part of this codebase.
+That repository's own history is also where this repo's specs/plans/docs
+that predate the split (referenced by filename in a few places here, but
+no longer present in this repo) can still be found.
 
 ## More
 

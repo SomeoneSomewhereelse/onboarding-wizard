@@ -1,5 +1,6 @@
-"""Tests for onboarding/main.py — GET/HEAD /healthz on the standalone
-onboarding service (a separate FastAPI app from bot/main.py)."""
+"""Tests for main.py — GET/HEAD /healthz on the standalone onboarding
+service (a separate FastAPI app from the sibling review-engine project's
+own main.py)."""
 from __future__ import annotations
 
 import pytest

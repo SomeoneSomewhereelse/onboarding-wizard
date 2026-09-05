@@ -119,6 +119,7 @@ accidentally exercise the refusal path instead of the real one._
 - **What:** The design spec (section 5) anticipated a structural log line on validation failure (e.g. `"render key validation: invalid (401)"`, name/outcome only, never the value). The implementation logs nothing at all — safe, but means a production report of "validation keeps failing" is currently undebuggable (can't distinguish a wave of `invalid_key` submissions from a genuine Render outage).
 - **Why parked:** Zero logging is the stricter, safer default, and this project has a documented history of secret-handling incidents (see the entries above this one) — adding logging under the time pressure of a single fix wave felt like the wrong moment to touch this area.
 - **Follow-up:** Add the structural log line the spec already specifies (status code / outcome enum only, never the key) once this service is closer to being actually deployed.
+- **Update (2026-09-05, parked-issues fix wave):** closed — this service is now actually deployed (live at the Render URL in README.md), so the trigger condition above is met. `render_client.py::validate_key` now logs `"render key validation: valid"` / `"render key validation: invalid (<status>)"` / `"render key validation: render_unreachable (<status or reason>)"` via a module-level `logging.getLogger(__name__)`, matching the design spec's exact example format — never the key value itself.
 
 ### static/index.html: minor UX/robustness gaps from sub-project 3 (Supabase provisioning)
 - **Found during:** Task 6 review, Task 7 review, and the final whole-branch review + its fix-wave re-review, `docs/superpowers/plans/2026-08-26-onboarding-supabase-provisioning-frame.md`
@@ -163,42 +164,49 @@ accidentally exercise the refusal path instead of the real one._
 - **What:** `CLAUDE.md` retains several `onboarding/`-prefixed path references left over from the pre-flatten layout; several source test-file docstrings still say `onboarding/config.py`/`bot/main.py`/`dashboard/static/dashboard.html`/etc.; `main.py`'s own module docstring still frames this as "a separate service from the review engine in bot/"; and a few files still say "same standard as root `CLAUDE.md`" even though this file's content now lives in the merged root `CLAUDE.md` and no longer needs the word "root" to disambiguate from anything. Explicitly excluded from this sweep: `render_client.py`'s `"envSpecificDetails": {"dockerfilePath": "./bot/Dockerfile"}` line — that string is the path on the *separately provisioned bot repo* this wizard deploys, not a stale reference to this repo's own now-deleted `bot/` directory; it is correct as written and must not be touched.
 - **Why parked:** Out of scope for any single restructure task; needs a dedicated repo-wide sweep rather than a scattered set of one-off edits.
 - **Follow-up:** A dedicated pass grepping for `onboarding/`, `bot/`, `dashboard/` path references and "root CLAUDE.md" phrasing across the repo, fixing each to the current flat layout, explicitly skipping the `render_client.py` line noted above.
+- **Update (2026-09-05, parked-issues fix wave):** closed. Swept every currently-active source file (root `*.py`, `tests/*.py`, `static/index.html`, `CLAUDE.md`, `README.md` — deliberately excluding `docs/superpowers/**` and `ISSUES.md`'s own historical entries, both preserved-verbatim by convention): every stale `onboarding/`-prefixed path fixed (`CLAUDE.md`, `session_store.py`, `router.py`, `uptimerobot_client.py`, `static/index.html`, `main.py`'s and several test files' module docstrings), every self-referential "root `CLAUDE.md`" reworded to just `CLAUDE.md` (this file's content lives at the repo root now), and every bare `bot/<path>` citation of the sibling review-engine project's own files reworded to name it explicitly ("the sibling review-engine project's X") rather than a bare path that now misreads as this-repo-relative — found several more instances than this entry's own examples named (`github_client.py`, `llm_client.py`, `render_client.py`, `session_store.py`, `uptimerobot_client.py`, a few test docstrings), including one the 2026-09-05 final-review fix wave's own Fix 5 had missed: `static/index.html`'s `REQUIRED_PERMISSIONS`/`REQUIRED_EVENTS` "SOURCE OF TRUTH" comment still cited the deleted `bot/scripts/create_github_app.py` and the old test name — fixed to cite `github_client.py` and the renamed test. `render_client.py`'s `"./bot/Dockerfile"` line confirmed untouched, exactly as this entry required. Full suite (452 passed), `ruff check .` clean, Docker build + boot re-verified.
 
 ### `.gitignore` has several now-dead entries from the pre-flatten layout
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** `site/` (MkDocs build output — no docs site in this repo), `bot/fixtures/demo_bulk_bad_code/` and `bot/scripts/seed_bulk_demo_pr.py` (paths under the deleted `bot/`), and `queue.db*` (the bot's SQLite queue, not used by this service) are all dead ignore patterns nobody owns any more.
 - **Why parked:** Low-risk — dead ignore patterns are harmless — and no restructure task owned `.gitignore`'s full content.
 - **Follow-up:** Remove the four dead entries whenever `.gitignore` is next touched for an unrelated reason.
+- **Update (2026-09-05, parked-issues fix wave):** closed. Removed all four dead entries plus their section comments; also removed a dangling comment stub (the old `brief.md` section header, whose pattern line was already removed in the restructure's Task 7 but whose two-line comment was accidentally left behind) found in the same file while fixing this.
 
 ### `pyproject.toml` dev-dependency group lost its `cryptography` rationale comment
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** The dev-dependency group previously explained, via a comment, that `cryptography>=44.0` is imported directly by `tests/test_onboarding_github_client.py` to build a real RSA key. That comment was lost during the restructure; the dependency itself is still correctly declared.
 - **Why parked:** Cosmetic — the dependency is present and correct, just missing its explanatory comment.
 - **Follow-up:** Re-add the one-line rationale comment whenever someone's next in that file.
+- **Update (2026-09-05, parked-issues fix wave):** closed — comment re-added verbatim, re-verified against the actual test file (`tests/test_onboarding_github_client.py` does import `cryptography.hazmat.primitives.asymmetric.rsa` directly to generate a throwaway key).
 
 ### Root `__init__.py` (0 bytes) makes the flat repo layout look like a package
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** An empty `__init__.py` sits at the repo root, but in a flat top-level-modules layout nothing actually imports the repo root as a package.
 - **Why parked:** Harmless as-is — the restructure design doc's own file list included moving it here — not worth churn without a concrete reason to remove it.
 - **Follow-up:** Remove only if/when something concrete depends on the repo root *not* being package-like, or as part of an unrelated cleanup pass.
+- **Update (2026-09-05, parked-issues fix wave):** closed. A repo-wide parked-issues fix wave is exactly the "unrelated cleanup pass" this entry's own follow-up named as the trigger — confirmed nothing references it (no `[build-system]`/`package = true` in `pyproject.toml`, no `Dockerfile` reference) before removing it.
 
 ### `CLAUDE.md`'s "LLM API testing hygiene" section interrupts the numbered sub-project sections, and its lead-in lost its antecedent
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** The "LLM API testing hygiene" section sits between two numbered sub-project sections, breaking their numbering, and its "**Rules to avoid repeating this:**" lead-in lost its antecedent when the narrative paragraph above it was trimmed to one sentence during the merge into the flat `CLAUDE.md`.
 - **Why parked:** Cosmetic placement/flow issue, not a correctness problem.
 - **Follow-up:** Move the section out of the numbered sub-project sequence (or renumber around it), and restore or rewrite the lead-in sentence so "this" has a clear antecedent.
+- **Update (2026-09-05, parked-issues fix wave):** closed. Moved the section out of the numbered sub-project sequence entirely (now sits after the "Dashboard login" section and before "Plan-execution / multi-agent process hygiene"), and rewrote the lead-in to "This project's `llm_client.py` makes real live calls... which carries the same Trust & Safety abuse-flag risk documented elsewhere..." followed by "**Rules to avoid triggering it:**" — "it" now clearly refers to the risk just named in the same sentence.
 
 ### `config.py`'s encryption-key field comment references a removed `supabase_oauth_client_id` field
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** The encryption-key field's comment in `config.py` still references `supabase_oauth_client_id`, a field removed in the 2026-09-04 Supabase PAT redesign — this predates the restructure and is unrelated to it.
 - **Why parked:** Pre-existing staleness unrelated to this restructure; noted while the file was under fresh eyes, not something this fix wave owns.
 - **Follow-up:** Update the comment to reflect the current PAT-based field set whenever `config.py` is next touched.
+- **Update (2026-09-05, parked-issues fix wave):** closed — the same fix wave's stale-path sweep (see above) touched this exact file for its "root `CLAUDE.md`" wording, so the dead `supabase_oauth_client_id` reference was fixed in the same edit rather than left for a separate pass. Now describes the reasoning generically ("fine for a non-secret settings field") without naming a field that no longer exists.
 
 ### Deleted spec/plan filenames are still cross-referenced from the specs/plans kept in this repo
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md`
 - **What:** 79 deleted spec/plan filenames are still cross-referenced from the 21 specs/plans kept in this repo, pointing at documents that now only exist in the sibling `~/pr-review-bot` repo's history. `ISSUES.md`'s own intro already tells readers where to find the full combined history, but nothing in `docs/` or `README.md` does.
 - **Why parked:** Low-value polish — one sentence in the README's "Related project" section would close it, but it's not a correctness gap since `ISSUES.md`'s intro already covers the pointer.
 - **Follow-up:** Add a one-sentence pointer to `~/pr-review-bot`'s combined history in README's "Related project" section.
+- **Update (2026-09-05, parked-issues fix wave):** closed — one sentence added to README's "Related project" section pointing readers at the sibling repo's history for any filename referenced here that no longer exists in this repo.
 
 ---
 

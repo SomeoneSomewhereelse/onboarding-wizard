@@ -164,7 +164,7 @@ it) mid-flow, most sharply during Supabase's OAuth redirect, resetting the
 whole wizard including earlier frames' already-validated credentials — see
 `ISSUES.md`. It was deliberately replaced, not patched around.
 
-**The service now holds a server-side session** (`onboarding/session_store.py`)
+**The service now holds a server-side session** (`session_store.py`)
 in a **new, dedicated Postgres** — never the sibling review-engine project's
 own queue DB, never a visitor's own provisioned project — identified by an
 `HttpOnly`/`Secure`/`SameSite=Lax` cookie rather than anything tab-scoped.
@@ -232,7 +232,7 @@ optional:**
 ## Rules
 
 - **Never log a visitor-supplied credential**, in full or truncated — same
-  standard as root `CLAUDE.md` applies to the operator's own secrets, applied
+  standard as this file's secret-handling section applies to the operator's own secrets, applied
   here to strangers' secrets, which if anything deserves *more* caution
   since these are people who did not choose to trust this codebase with
   their operational hygiene the way the project's own operator has.
@@ -250,7 +250,7 @@ optional:**
 
 ## What the implementation adds to these rules
 
-- **The app-wide `RequestValidationError` handler lives in `onboarding/main.py`,
+- **The app-wide `RequestValidationError` handler lives in `main.py`,
   not `router.py`.** It's what turns a malformed request into the generic
   `{"detail": "invalid request"}` 422 instead of FastAPI's default response
   (which echoes the rejected input, including a submitted credential). Every
@@ -449,7 +449,7 @@ optional:**
 ## What sub-project 4 (LLM provider credential UI) adds to these rules
 
 - **The model this deployment runs is always fetched live from the
-  provider's own catalog, never hardcoded.** `onboarding/llm_client.py`
+  provider's own catalog, never hardcoded.** `llm_client.py`
   makes exactly one models-listing call per credential submission, which
   doubles as validation. No provider's default/fallback model string may
   be hardcoded anywhere in this service — that is exactly the drift this
@@ -483,7 +483,7 @@ optional:**
   rather than folding into a generic validation failure.
 - **No operator-level settings were added for this sub-project** — unlike
   Supabase's OAuth app, every credential here is visitor-supplied per
-  request. `onboarding/config.py` and `onboarding/main.py`'s `lifespan` are
+  request. `config.py` and `main.py`'s `lifespan` are
   untouched by it.
 - **Gemini/Vertex tests mock at the SDK client boundary
   (`google.genai.Client` itself is monkeypatched), not `respx`** — the
@@ -529,35 +529,6 @@ optional:**
   refresh is synchronous under the hood — remove this and every other
   visitor's concurrent request stalls for the refresh round-trip.
 
-## LLM API testing hygiene (avoid Trust & Safety flags)
-
-This project's `llm_client.py` makes real live calls to Gemini/Groq/Vertex
-during credential validation — the same abuse-flag risk applies here as
-anywhere else this discipline is documented.
-**Rules to avoid repeating this:**
-
-- **Never loop/burst live calls across many models or keys** to "see what
-  sticks." One deliberate, single live call per real verification need.
-- **Prefer mocked/cassette tests for exploration.** Reserve real network calls
-  for the one live-verification step a build step actually requires — not
-  for debugging or model-shopping.
-- **If a provider starts returning 403/429, stop calling it immediately** and
-  investigate via docs/support channels rather than retrying with different
-  models/keys in quick succession — retrying does not help and each attempt
-  is one more data point that can reinforce an abuse-pattern flag. This
-  extends to OAuth/auth-layer failures too (e.g. `invalid_scope`,
-  `RefreshError`) — same failure shape, same stop-and-diagnose principle,
-  not a "try a different scope/key" situation.
-- **The "one deliberate live call" limit is about generation/completion
-  requests** — the ones that cost money and carry provider-abuse-flag risk.
-  It does **not** apply to lightweight metadata/listing calls (e.g. checking
-  whether a model ID exists in a provider's catalog). Checking several
-  candidate values via a listing/existence endpoint in one pass is fine, and
-  is the right way to narrow down configuration *before* making the one
-  deliberate generation call — not a workaround for the rule above.
-- This applies to **any** LLM provider's free tier, not just Gemini — Groq and
-  future alternatives should get the same restraint.
-
 ## What sub-project 5 (UptimeRobot keep-warm frame) adds to these rules
 
 - **UptimeRobot's v3 REST API (`Bearer` auth, JSON,
@@ -600,7 +571,7 @@ anywhere else this discipline is documented.
   naming), `type: "HTTP"`, `interval: 300`, `timeout: 30`. A future change
   that lets the visitor choose these needs its own brainstorm, not a quiet
   addition here.
-- **`onboarding/uptimerobot_client.py` follows the same raw-`httpx`, no-SDK
+- **`uptimerobot_client.py` follows the same raw-`httpx`, no-SDK
   shape as `render_client.py`/`github_client.py`/`supabase_client.py`** —
   UptimeRobot has no official SDK. Tests mock via `respx`, same as those
   three modules, not the SDK-boundary mocking `llm_client.py`'s tests
@@ -614,7 +585,7 @@ anywhere else this discipline is documented.
   `nextLink`, not an expected real-account limit.
 - **`delete_monitor` (backed by `DELETE /v3/monitors/{id}`) exists so a
   changed render-key or render-service frame can clean up the monitor it
-  orphans** — `onboarding/static/index.html`'s `cleanupOrphanedUptimeMonitor()`
+  orphans** — `static/index.html`'s `cleanupOrphanedUptimeMonitor()`
   calls it best-effort from `beginChange`, before `relockDownstreamOf`
   clears the uptime-pinger frame's own `sessionStorage` record (which is
   where the monitor id it needs comes from). Only `render-key` and
@@ -734,7 +705,7 @@ anywhere else this discipline is documented.
 - **`GITHUB_TARGET_REPO`, `GCP_PROJECT`, and `GCP_LOCATION` are
   deliberately never pushed** — track-all mode and this project's own
   matching defaults (the sibling review-engine project's own `gcp_location`
-  default already equals `onboarding/llm_client.py`'s fixed
+  default already equals `llm_client.py`'s fixed
   `_VERTEX_LOCATION` constant, verified) make an explicit push redundant.
   Do not add them without a concrete reason a default has drifted.
 - **Deploy status polling keeps its own copy of Render's deploy-status
@@ -795,6 +766,36 @@ anywhere else this discipline is documented.
   single frame — "Finish & Deploy"'s own status poll surfaces a
   crash-looping deploy immediately, and "Change" lets the visitor redo this
   frame and re-push.
+
+## LLM API testing hygiene (avoid Trust & Safety flags)
+
+This project's `llm_client.py` makes real live calls to Gemini/Groq/Vertex
+during credential validation, which carries the same Trust & Safety
+abuse-flag risk documented elsewhere for LLM providers' free tiers.
+
+**Rules to avoid triggering it:**
+
+- **Never loop/burst live calls across many models or keys** to "see what
+  sticks." One deliberate, single live call per real verification need.
+- **Prefer mocked/cassette tests for exploration.** Reserve real network calls
+  for the one live-verification step a build step actually requires — not
+  for debugging or model-shopping.
+- **If a provider starts returning 403/429, stop calling it immediately** and
+  investigate via docs/support channels rather than retrying with different
+  models/keys in quick succession — retrying does not help and each attempt
+  is one more data point that can reinforce an abuse-pattern flag. This
+  extends to OAuth/auth-layer failures too (e.g. `invalid_scope`,
+  `RefreshError`) — same failure shape, same stop-and-diagnose principle,
+  not a "try a different scope/key" situation.
+- **The "one deliberate live call" limit is about generation/completion
+  requests** — the ones that cost money and carry provider-abuse-flag risk.
+  It does **not** apply to lightweight metadata/listing calls (e.g. checking
+  whether a model ID exists in a provider's catalog). Checking several
+  candidate values via a listing/existence endpoint in one pass is fine, and
+  is the right way to narrow down configuration *before* making the one
+  deliberate generation call — not a workaround for the rule above.
+- This applies to **any** LLM provider's free tier, not just Gemini — Groq and
+  future alternatives should get the same restraint.
 
 ## Plan-execution / multi-agent process hygiene
 

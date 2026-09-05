@@ -1,4 +1,4 @@
-"""Tests for onboarding/uptimerobot_client.py — monitor creation checks for
+"""Tests for uptimerobot_client.py — monitor creation checks for
 an existing monitor before creating a duplicate, the /healthz path is
 derived server-side (never trusted from the caller), and every error maps
 to a fixed reason vocabulary, never a raw exception message. See

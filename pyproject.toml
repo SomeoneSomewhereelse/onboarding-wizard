@@ -27,6 +27,8 @@ package = false
 
 [dependency-groups]
 dev = [
+    # Imported directly by tests/test_onboarding_github_client.py to build a
+    # real RSA key; transitive via pygithub[crypto] otherwise.
     "cryptography>=44.0",
     "playwright>=1.62.0",
     "pytest>=8.3",

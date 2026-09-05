@@ -1,8 +1,8 @@
-"""Tests for onboarding/config.py — public_base_url reads from the real
-process environment only (no .env/.env.config file: onboarding/ is a
-separate deployed service, not sharing the review engine's config files).
-See docs/superpowers/specs/2026-08-26-onboarding-github-app-frame-design.md
-section 5."""
+"""Tests for config.py's Settings: no public_base_url field exists (the
+page derives its own base from location.origin instead — see CLAUDE.md),
+and database_url/onboarding_session_encryption_key read from the real
+process environment only (this service doesn't share the sibling
+review-engine project's config files)."""
 
 from __future__ import annotations
 

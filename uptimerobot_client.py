@@ -3,8 +3,9 @@ reuses) the keep-warm monitor for a deployed Render service. See
 docs/superpowers/specs/2026-08-27-onboarding-uptimerobot-frame-design.md
 sections 2-3.
 
-Uses v3 (Bearer auth, JSON), not the legacy v2 form-API
-bot/scripts/deploy.py's existing read-only check_uptime_pinger already uses:
+Uses v3 (Bearer auth, JSON), not the legacy v2 form-API the sibling
+review-engine project's own deploy.py::check_uptime_pinger already uses
+(read-only, unaffected by this):
 v2's POST /newMonitor was verified live to reject monitor creation on a
 free-plan account (403 "not allowed to use some settings with your
 current plan"); v3 was verified live to accept it on the same account
@@ -70,7 +71,7 @@ async def _find_existing_monitor_id(
     page (the old behavior) only covers an account's first 50-200 monitors
     -- past that, dedupe silently misses a real match and a resubmit
     creates an orphaned duplicate, which is exactly what dedupe-before-
-    create exists to prevent (onboarding/CLAUDE.md's "load-bearing, not an
+    create exists to prevent (CLAUDE.md's "load-bearing, not an
     optimization" note)."""
     url, params = "/monitors", {"limit": _LIST_PAGE_SIZE}
     for _ in range(_MAX_LIST_PAGES):
@@ -149,7 +150,7 @@ async def create_or_reuse_monitor(api_key: str, render_service_url: str) -> Upti
 async def delete_monitor(api_key: str, monitor_id: int) -> UptimeRobotDeleteOutcome:
     """Never logs or returns api_key. Best-effort cleanup call -- callers
     treat any UptimeRobotApiFailed here as non-fatal, the same way
-    onboarding/static/index.html's push-and-clear helpers treat a Render
+    static/index.html's push-and-clear helpers treat a Render
     push failure: attempted is good enough, nothing in this flow blocks on
     it succeeding."""
     headers = {"Authorization": f"Bearer {api_key}"}

@@ -1,4 +1,4 @@
-"""Tests for onboarding/render_client.py — Render key validation never logs
+"""Tests for render_client.py — Render key validation never logs
 or returns the raw key, and distinguishes an invalid key from Render being
 unreachable (design doc sections 6 and 8)."""
 

@@ -1,4 +1,4 @@
-"""Tests for onboarding/supabase_client.py. validate_key() mirrors
+"""Tests for supabase_client.py. validate_key() mirrors
 render_client.validate_key()'s shape: one cheap read call doubles as both
 credential validation and (since Supabase has no separate "who am I"
 endpoint) the org list the frame needs next. See

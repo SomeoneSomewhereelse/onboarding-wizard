@@ -107,7 +107,8 @@ def _app_jwt_client(app_id: int, private_key_pem: str) -> Github:
 def _fetch_app(app_id: int, private_key_pem: str) -> tuple[dict[str, str], list[str]]:
     """Blocking PyGithub call — run via asyncio.to_thread by the caller.
     GET /app under the App JWT: (permissions, events) the App ACTUALLY has
-    recorded on GitHub right now, mirroring bot/github_app.py::get_app_permissions."""
+    recorded on GitHub right now, mirroring the sibling review-engine
+    project's github_app.py::get_app_permissions."""
     gh = _app_jwt_client(app_id, private_key_pem)
     _, data = gh.requester.requestJsonAndCheck("GET", "/app")
     return data.get("permissions", {}), data.get("events", [])
@@ -124,9 +125,9 @@ def _fetch_installations(app_id: int, private_key_pem: str) -> list[dict]:
 def _fetch_webhook_config(app_id: int, private_key_pem: str) -> str:
     """Blocking PyGithub call — run via asyncio.to_thread by the caller.
     GET /app/hook/config under the App JWT. Returns "" when unset — mirrors
-    bot/github_app.py::get_webhook_url's handling of PyGithub's synthetic
-    `url` key on an unconfigured webhook (only an absolute http(s) URL
-    counts as configured)."""
+    the sibling review-engine project's github_app.py::get_webhook_url
+    handling of PyGithub's synthetic `url` key on an unconfigured webhook
+    (only an absolute http(s) URL counts as configured)."""
     gh = _app_jwt_client(app_id, private_key_pem)
     _, data = gh.requester.requestJsonAndCheck("GET", "/app/hook/config")
     url = (data or {}).get("url") or ""
@@ -138,8 +139,9 @@ def diff_required_permissions(
 ) -> tuple[list[PermissionCheck], list[EventCheck]]:
     """One PermissionCheck per REQUIRED_PERMISSIONS entry and one EventCheck
     per REQUIRED_EVENTS entry — structured, not the human-readable
-    under/over string lists bot/github_app.py::diff_app_permissions returns,
-    since the UI renders one colored line per item. Rank-based comparison
+    under/over string lists the sibling review-engine project's
+    github_app.py::diff_app_permissions returns, since the UI renders one
+    colored line per item. Rank-based comparison
     (read < write < admin), so a broader-than-needed permission still
     passes — least-privilege is a doctor.py WARN concern for an operator,
     not a blocker for a visitor whose App already works."""

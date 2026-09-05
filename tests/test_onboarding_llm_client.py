@@ -1,4 +1,4 @@
-"""Tests for onboarding/llm_client.py's Gemini and Vertex model listing.
+"""Tests for llm_client.py's Gemini and Vertex model listing.
 Both share google-genai's SDK. The async listing call itself is httpx-based
 for both providers (verified: this environment has no aiohttp installed,
 so google-genai's async path falls back to httpx regardless of auth type).
@@ -543,8 +543,9 @@ async def test_list_groq_models_never_logs_the_api_key(caplog):
 async def test_list_groq_models_does_not_retry_behind_our_back():
     """The groq SDK defaults to max_retries=2 and retries 429/5xx, which
     would turn one visitor-facing validation into three live calls --
-    counter to bot/providers/groq.py's documented max_retries=0 decision
-    and to root CLAUDE.md's "stop calling on a 403/429" discipline."""
+    counter to the sibling review-engine project's providers/groq.py's
+    documented max_retries=0 decision and to CLAUDE.md's "stop calling on
+    a 403/429" discipline."""
     with respx.mock:
         route = respx.get(MODELS_URL).mock(
             return_value=httpx.Response(429, json={"error": {"message": "slow down"}})

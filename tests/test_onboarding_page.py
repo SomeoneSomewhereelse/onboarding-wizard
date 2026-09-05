@@ -604,7 +604,7 @@ async def test_llm_provider_credential_has_exactly_one_fetch_call_site():
     fetch() call site in validateLlmProviderCredential() rather than one
     fetch() per provider — the per-provider endpoint tests above establish
     each credential still has exactly one path to that shared call site,
-    the same one-exit-path invariant onboarding/CLAUDE.md documents for
+    the same one-exit-path invariant CLAUDE.md documents for
     every other credential-carrying fetch on this page, adapted for this
     frame's shared-call-site shape.
 

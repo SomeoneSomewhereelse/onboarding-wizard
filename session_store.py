@@ -1,8 +1,8 @@
-"""onboarding/session_store.py — the wizard's server-side session store.
+"""session_store.py — the wizard's server-side session store.
 
-Replaces the stateless-relay invariant onboarding/CLAUDE.md used to state:
-mobile browsers were found to destroy sessionStorage (and the browsing
-context holding it) mid-flow, so wizard progress now lives here instead,
+Replaces the stateless-relay invariant CLAUDE.md used to state: mobile
+browsers were found to destroy sessionStorage (and the browsing context
+holding it) mid-flow, so wizard progress now lives here instead,
 identified by a cookie rather than anything tab-scoped. See
 docs/superpowers/specs/2026-09-01-onboarding-server-side-session-design.md.
 
@@ -14,10 +14,9 @@ get_session()/the router's own display-field allowlist ever decrypts a
 frame's contents back out.
 
 Sync functions, run via asyncio.to_thread by callers -- same convention as
-bot/queue/store.py, so Postgres network latency never blocks the event
-loop. This module never imports from bot/ (onboarding/CLAUDE.md's no-
-shared-credential-path rule); it mirrors bot/queue/store.py's pattern, not
-its code.
+the sibling review-engine project's queue/store.py, so Postgres network
+latency never blocks the event loop. This module mirrors that project's
+queue/store.py's pattern, not its code -- no import between the two repos.
 """
 from __future__ import annotations
 
@@ -55,7 +54,7 @@ def _configure(conn) -> None:
 def init_pool() -> None:
     """Open the connection pool (if not already) and ensure the schema.
     Idempotent. Fails loudly (RuntimeError, never a bare PoolTimeout) on an
-    unreachable database, matching bot/queue/store.py's init_pool()
+    unreachable database, matching the sibling review-engine project's queue/store.py's init_pool()
     convention -- this project's services fail startup loudly rather than
     limping along without their datastore. Never includes
     settings.database_url in the error, which carries the password."""

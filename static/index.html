@@ -911,7 +911,7 @@
   // deliberately no "render-key" or "github-app" entry here anymore: the
   // Render API key is never resent after frame 1 validates it, and the
   // GitHub App credentials are never resent after frame 2 validates them
-  // (see onboarding/CLAUDE.md's credential-handling rules for this file).
+  // (see CLAUDE.md's credential-handling rules for this file).
   const STORAGE_KEYS = {
     "render-service": "onboarding.renderService",
     "dashboard-auth": "onboarding.dashboardAuth",
@@ -947,11 +947,11 @@
     }
   }
 
-  // SOURCE OF TRUTH: bot/scripts/create_github_app.py's MANIFEST_PERMISSIONS /
-  // MANIFEST_EVENTS. These two lists must stay identical -- the CLI script's
-  // manifest and this wizard's validation checklist both describe the same
-  // requirement. Change them there first, then here;
-  // tests/test_onboarding_page.py::test_required_permissions_match_the_cli_script
+  // SOURCE OF TRUTH: github_client.py's REQUIRED_PERMISSIONS / REQUIRED_EVENTS.
+  // These two lists must stay identical -- there's no shared JS/Python
+  // boundary a real shared constant could live in, so this is a deliberate,
+  // paired-comment copy. Change them there first, then here;
+  // tests/test_onboarding_page.py::test_required_permissions_match_github_client
   // imports the Python constants and fails if these drift.
   const REQUIRED_PERMISSIONS = {
     pull_requests: "write", contents: "read", issues: "write", metadata: "read",

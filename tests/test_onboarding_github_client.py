@@ -1,4 +1,4 @@
-"""Tests for onboarding/github_client.py — validate_app() reads a visitor's
+"""Tests for github_client.py — validate_app() reads a visitor's
 hand-created GitHub App's actual configuration back from GitHub and reports
 per-item pass/fail against REQUIRED_PERMISSIONS/REQUIRED_EVENTS, installation,
 and webhook URL. Never logs or echoes the private key. See

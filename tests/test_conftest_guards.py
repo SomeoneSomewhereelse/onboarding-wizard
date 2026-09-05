@@ -4,8 +4,9 @@ _looks_like_local_test_db is the sole gate deciding whether tests/conftest.py's
 db_url fixture is allowed to point destructive (TRUNCATE) tests at a
 DATABASE_URL taken from the environment, versus refusing and raising. This
 project's 2026-08-19 test-suite-performance design makes setting
-DATABASE_URL locally more common (bot/scripts/test_db.py), which raises the cost
-of this guard silently regressing -- and until now nothing exercised it at
+DATABASE_URL locally more common (the sibling review-engine project's own
+scripts/test_db.py is one example of that trend), which raises the cost of
+this guard silently regressing -- and until now nothing exercised it at
 all.
 
 Tests the predicate directly rather than driving tests/conftest.py::db_url's
