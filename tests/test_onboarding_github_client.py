@@ -271,13 +271,6 @@ async def test_installation_lookup_failure_does_not_hide_permission_results(
     assert result.webhook.ok
 
 
-def test_required_permissions_and_events_match_the_cli_script():
-    from bot.scripts.create_github_app import MANIFEST_EVENTS, MANIFEST_PERMISSIONS
-
-    assert github_client.REQUIRED_PERMISSIONS == MANIFEST_PERMISSIONS
-    assert github_client.REQUIRED_EVENTS == MANIFEST_EVENTS
-
-
 def test_no_manifest_exchange_or_single_installation_verify_leftover():
     """These functions belonged to the removed manifest-flow/typed-
     installation-id design -- their reappearance means half of that flow

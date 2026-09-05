@@ -1,83 +1,12 @@
 services:
   - type: web
-    name: pr-review-engine
+    name: onboarding-wizard
     runtime: docker
-    dockerfilePath: ./onboarding/Dockerfile
+    dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /healthz
-    # Docs-only changes (README, SPEC, CLAUDE.md, ISSUES.md, docs/**)
-    # never affect what's actually deployed -- onboarding/Dockerfile only ever
-    # COPYs pyproject.toml, uv.lock, and onboarding/. An ignore-list (not an include-list)
-    # is deliberate: anything NOT explicitly excluded here still triggers a
-    # deploy by default, so a forgotten update here costs one avoidable
-    # redeploy, never a real change silently failing to deploy.
-    buildFilter:
-      ignoredPaths:
-        - "**/*.md"
     envVars:
       - key: DATABASE_URL
         sync: false
-      - key: GITHUB_APP_ID
-        sync: false
-      - key: GITHUB_APP_PRIVATE_KEY
-        sync: false
-      - key: GITHUB_WEBHOOK_SECRET
-        sync: false
-      - key: DASHBOARD_USERNAME
-        sync: false
-      - key: DASHBOARD_PASSWORD
-        sync: false
-      - key: DASHBOARD_SESSION_SECRET
-        sync: false
-      - key: RENDER_API_KEY
-        sync: false
-      - key: GITHUB_TARGET_REPO
-        sync: false
-      - key: GITHUB_APP_INSTALLATION_ID
-        sync: false
-      - key: LLM_PROVIDER
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: LLM_MODEL
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: GROQ_API_KEY_1
-        sync: false
-      - key: GROQ_API_KEY_2
-        sync: false
-      - key: GROQ_MODEL
-        sync: false
-      - key: VERTEX_MODEL
-        sync: false
-      - key: GCP_SERVICE_ACCOUNT_KEY
-        sync: false
-      - key: GCP_SERVICE_ACCOUNT_KEY_1
-        sync: false
-      - key: GCP_SERVICE_ACCOUNT_KEY_2
-        sync: false
-      - key: GCP_PROJECT
-        sync: false
-      - key: GCP_LOCATION
-        sync: false
-      - key: LLM_REQUEST_TIMEOUT_SECONDS
-        sync: false
-      - key: DISPATCHER_IDLE_SLEEP_SECONDS
-        sync: false
-      - key: DEFAULT_RETRY_AFTER_SECONDS
-        sync: false
-      - key: DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS
-        sync: false
-      - key: DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS
-        sync: false
-      - key: DISPATCHER_MAX_FAILURE_ATTEMPTS
-        sync: false
-      - key: DISPATCHER_MAX_NOTICE_POST_ATTEMPTS
-        sync: false
-      - key: DISPATCHER_MIN_RETRY_AFTER_SECONDS
-        sync: false
-      - key: DISPATCHER_BACKOFF_JITTER_SECONDS
-        sync: false
-      - key: DISPATCHER_NOTICE_SWEEP_BATCH_SIZE
+      - key: ONBOARDING_SESSION_ENCRYPTION_KEY
         sync: false

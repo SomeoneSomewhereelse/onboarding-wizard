@@ -9,7 +9,6 @@ from __future__ import annotations
 from httpx import ASGITransport, AsyncClient
 
 from main import app
-from bot.scripts.create_github_app import MANIFEST_EVENTS, MANIFEST_PERMISSIONS
 
 FRAME_IDS = [
     "render-key",
@@ -298,30 +297,6 @@ async def test_locked_frames_are_visually_dimmed():
     client = await _client()
     body = (await client.get("/")).text
     assert 'details.frame[data-locked="true"] { opacity:' in body
-
-
-async def test_required_permissions_match_the_cli_script():
-    """The page's JS REQUIRED_PERMISSIONS/REQUIRED_EVENTS must mirror
-    bot/scripts/create_github_app.py's, which is the single source of truth (a
-    paired comment in each file points at the other; there is no shared
-    JS/Python boundary a real shared constant could live in).
-
-    This reads the actual Python constants rather than re-listing the same
-    literals a second time: a copy of the literals here would keep passing
-    after someone edited only the CLI script, which is exactly the drift this
-    test exists to catch."""
-    client = await _client()
-    body = (await client.get("/")).text
-    for name, level in MANIFEST_PERMISSIONS.items():
-        assert f'{name}: "{level}"' in body, f"page is missing permission {name}: {level}"
-    for event in MANIFEST_EVENTS:
-        assert f'"{event}"' in body, f"page is missing required event {event}"
-    js_perms = body[body.index("const REQUIRED_PERMISSIONS = {") :]
-    js_perms = js_perms[: js_perms.index("};")]
-    assert js_perms.count(":") == len(MANIFEST_PERMISSIONS)
-    js_events = body[body.index("const REQUIRED_EVENTS = [") :]
-    js_events = js_events[: js_events.index("];")]
-    assert js_events.count('"') == 2 * len(MANIFEST_EVENTS)
 
 
 async def test_github_app_credential_never_persists_to_local_storage():
