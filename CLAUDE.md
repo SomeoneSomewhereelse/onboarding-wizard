@@ -89,10 +89,7 @@ project) — which is why this section exists and is kept first in the file.
   rather than "only touch the safe lines": it isn't fully verified that
   narrow access prevents the harness from tracking (and later re-surfacing)
   the whole file, so don't rely on scoped access as a mitigation for this
-  specific vector. (Operational config no longer requires this: non-secret
-  settings live in `.env.config`, which is safe to open and edit, and
-  provider/model/cap/cooldown changes also have redeploy-free CLI paths —
-  see README's "Changing operational config".)
+  specific vector.
   **If, despite this rule, such a file is ever opened anyway (e.g. an
   older path, a mistake, a subagent that didn't inherit this rule) and a
   later "changed externally" notification fires for it, treat that as a
