@@ -1,5 +1,7 @@
 # Onboarding Wizard
 
+**[Try it →](https://onboarding-wizard-mk6m.onrender.com/)** — this repo's own live deployment.
+
 A self-service setup wizard: a visitor walks through it, in their own
 browser, to provision their own instance of a separate PR-review bot —
 creating and validating a GitHub App, provisioning a Supabase project,
@@ -43,7 +45,8 @@ uv run ruff check .
 
 Deployed on Render as a single Docker web service (`render.yaml`,
 `Dockerfile`), backed by its own dedicated Supabase/Postgres session store
-(`DATABASE_URL` above) — never the bot's own database. See
+(`DATABASE_URL` above) — never the bot's own database. Live at
+<https://onboarding-wizard-mk6m.onrender.com/>. See
 `docs/superpowers/specs/2026-09-01-onboarding-server-side-session-design.md`
 for the full session design.
 
