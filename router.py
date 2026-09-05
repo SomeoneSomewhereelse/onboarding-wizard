@@ -159,28 +159,31 @@ class DashboardAuthConfirmRequest(BaseModel):
     session_secret: str = Field(min_length=32, max_length=256)
 
 
-# Paired comment with bot/providers/registry.py::PROVIDERS -- onboarding/
-# never imports from bot/ (onboarding/CLAUDE.md's no-shared-credential-
-# path rule), so this 3-entry mapping is a deliberate copy, not a shared
-# import. Keep in sync if a provider's env var names ever change there.
+# Paired comment with the sibling review-engine project's (~/pr-review-bot)
+# providers/registry.py::PROVIDERS -- kept in sync by hand, nothing
+# automated ties the two together, so this 3-entry mapping is a deliberate
+# copy, not a shared import. Keep in sync if a provider's env var names
+# ever change there.
 _LLM_ENV_VAR_NAMES = {
     "gemini": ("GEMINI_API_KEY", "LLM_MODEL"),
     "groq": ("GROQ_API_KEY", "GROQ_MODEL"),
     "vertex": ("GCP_SERVICE_ACCOUNT_KEY", "VERTEX_MODEL"),
 }
 
-# bot/config.py's OPERATIONAL_KEYS tuning knobs that bot/scripts/deploy.py's
-# --sync-env pushes as Render env vars (its _GENERIC_OPERATIONAL_ENV_ATTRS),
-# with their bot/config.py Settings field defaults hardcoded here -- same
-# duplication-not-import pattern as _LLM_ENV_VAR_NAMES above (onboarding/
-# never imports bot/, per onboarding/CLAUDE.md). Render's API rejects an
+# The sibling review-engine project's (~/pr-review-bot) config.py's
+# OPERATIONAL_KEYS tuning knobs that its deploy.py's --sync-env pushes as
+# Render env vars (its _GENERIC_OPERATIONAL_ENV_ATTRS), with their
+# config.py Settings field defaults hardcoded here -- same
+# duplication-not-import pattern as _LLM_ENV_VAR_NAMES above, kept in sync
+# by hand, nothing automated ties the two together. Render's API rejects an
 # empty env-var value outright (ISSUES.md 2026-08-17), so GCP_PROJECT and
 # GITHUB_TARGET_REPO -- the two of these twelve keys whose Settings default
 # is genuinely blank -- are deliberately excluded rather than pushed as "":
 # an operator who wants either set can still do so after the fact (Render
-# dashboard, or bot/scripts/deploy.py --sync-env once .env.config names a repo).
-# Keep these in sync with bot/config.py's actual field defaults by hand --
-# there is no automated check tying the two together.
+# dashboard, or that project's deploy.py --sync-env once its config names a
+# repo).
+# Keep these in sync with that project's config.py's actual field defaults
+# by hand -- there is no automated check tying the two together.
 _GENERIC_OPERATIONAL_ENV_DEFAULTS = {
     "GCP_LOCATION": "us-central1",
     "LLM_REQUEST_TIMEOUT_SECONDS": "45.0",

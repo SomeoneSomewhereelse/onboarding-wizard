@@ -1,8 +1,8 @@
 """Thin async wrapper around GitHub's App-configuration APIs — validates a
 visitor's own, hand-created GitHub App against this project's requirements
 without persisting anything server-side. App creation and installation are
-both fully manual (guide/setup/02-github-app.md's process, followed inside
-GitHub's own UI); this module's job is reading the App's actual state back
+both fully manual, followed inside GitHub's own UI; this module's job is
+reading the App's actual state back
 and reporting it, the doctor.py-style compensation for losing the old
 manifest flow's built-in correctness. See
 docs/superpowers/specs/2026-09-01-onboarding-github-app-manual-validation-design.md."""
@@ -24,12 +24,11 @@ from github import Auth, Github, GithubException
 # single out.
 USER_AGENT = "pr-review-bot-onboarding"
 
-# SOURCE OF TRUTH: bot/scripts/create_github_app.py's MANIFEST_PERMISSIONS /
-# MANIFEST_EVENTS. Kept in sync by hand -- onboarding/ never imports from
-# bot/ (onboarding/CLAUDE.md's no-shared-credential-path rule) --
-# tests/test_onboarding_github_client.py::test_required_permissions_and_events_match_the_cli_script
-# and tests/test_onboarding_page.py::test_required_permissions_match_the_cli_script
-# both fail if this copy or the JS copy in static/index.html drifts.
+# SOURCE OF TRUTH: kept in sync by hand with the sibling review-engine
+# project's (~/pr-review-bot) create_github_app.py's MANIFEST_PERMISSIONS /
+# MANIFEST_EVENTS -- nothing automated ties the two together --
+# tests/test_onboarding_page.py::test_required_permissions_match_github_client
+# fails if this copy or the JS copy in static/index.html drifts.
 REQUIRED_PERMISSIONS = {
     "pull_requests": "write",
     "contents": "read",
@@ -99,9 +98,9 @@ AppValidationResult = AppCredentialsInvalid | AppValidated
 
 def _app_jwt_client(app_id: int, private_key_pem: str) -> Github:
     """Client authenticated as the visitor's own App (JWT) -- built fresh
-    from their just-submitted credentials, never bot/github_app.py's
-    operator-tied helpers (onboarding/CLAUDE.md's no-shared-credential-path
-    rule)."""
+    from their just-submitted credentials, never the sibling review-engine
+    project's (~/pr-review-bot) operator-tied helpers -- kept in sync by
+    hand, nothing automated ties the two together."""
     return Github(auth=Auth.AppAuth(app_id, private_key_pem), user_agent=USER_AGENT)
 
 

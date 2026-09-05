@@ -133,8 +133,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     suffix onto `item._nodeid`, and that nodeid *string* is the only thing the
     scheduler groups on. That stamping hookimpl is undecorated, so pluggy
     orders it by registration LIFO -- and this file is an *initial* conftest
-    (the repo root, ahead of every directory in `testpaths`), registered
-    before `WorkerInteractor`, so
+    (loaded as an initial conftest because `tests/` is the sole `testpaths`
+    entry) registered before `WorkerInteractor`, so
     without `tryfirst` xdist stamps first, while no item carries the marker
     yet, and every db test ends up its own singleton group spread across every
     worker (each spinning its own testcontainers Postgres). The failure is

@@ -54,11 +54,12 @@ async def validate_key(api_key: str) -> RenderValidation:
     return RenderKeyValid(owner_name=owner_name)
 
 
-# Mirrors bot/scripts/deploy.py's own status-bucket sets VERBATIM -- onboarding/
-# never imports from bot/scripts/ or bot/ (onboarding/CLAUDE.md's no-shared-
-# credential-path rule), so this is a deliberate, paired-comment copy, not
-# a shared import. Keep in sync with bot/scripts/deploy.py's
-# _DEPLOY_IN_FLIGHT_STATUSES / _DEPLOY_FAILED_STATUSES if either changes.
+# Mirrors the sibling review-engine project's (~/pr-review-bot)
+# deploy.py's own status-bucket sets VERBATIM -- kept in sync by hand,
+# nothing automated ties the two together, so this is a deliberate,
+# paired-comment copy, not a shared import. Keep in sync with that
+# project's deploy.py's _DEPLOY_IN_FLIGHT_STATUSES / _DEPLOY_FAILED_STATUSES
+# if either changes.
 _DEPLOY_IN_FLIGHT_STATUSES = {
     "created",
     "queued",
