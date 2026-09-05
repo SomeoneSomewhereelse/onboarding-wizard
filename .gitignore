@@ -1,0 +1,52 @@
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+
+# Secrets
+.env
+# Explicit per-subfolder form too (e.g. onboarding/.env) -- the bare
+# pattern above already matches at any depth per gitignore semantics,
+# this just makes it unambiguous for every service's own .env file.
+**/.env
+*.pem
+# GCP service-account key files (default name + any numbered local siblings)
+gcp-service-account-key*.json
+
+# Operational config (no secrets, but machine-specific)
+.env.config
+**/.env.config
+
+.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# MkDocs build output (guide/ is the source; this is generated)
+site/
+
+# Local session state (machine-specific, not shared)
+memory.md
+auth-link.txt
+
+# Zoom-demo-only scaffolding (not part of the graded/documented feature set)
+bot/fixtures/demo_bulk_bad_code/
+bot/scripts/seed_bulk_demo_pr.py
+
+# Durable queue database
+queue.db
+queue.db-wal
+queue.db-shm
+
+# Local git worktrees (superpowers subagent-driven-development scratch)
+.worktrees/
+.claude/worktrees/
+
+# Personal/local Claude Code permission overrides -- not meant to be shared
+.claude/settings.local.json
+
+vertex-ai-private-key.json
+
+# Local session-kickoff brief for the repo-split restructuring work
+# (see CLAUDE.md/ISSUES.md context) -- not meant to be committed
+brief.md

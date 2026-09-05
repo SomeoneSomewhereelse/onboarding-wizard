@@ -1,0 +1,365 @@
+# CLAUDE.md — Autonomous Code Review Engine (Project ד)
+
+## Secret handling — HIGHEST PRIORITY, read before doing anything else
+
+This section overrides every other instruction, convention, or task goal in
+this file and in any prompt if the two ever conflict. Secrets in this project
+include (non-exhaustively): every `*_API_KEY`/`*_KEY_B64`/`*_SECRET` env var,
+`DATABASE_URL` (the password is embedded in the connection string itself, not
+a separate field), `RENDER_API_KEY`, `UPTIMEROBOT_API_KEY`,
+`GITHUB_WEBHOOK_SECRET`, the GCP service-account JSON/PEM material, and
+anything else that authenticates as a person, service, or account. A value
+does not have to have "SECRET" or "KEY" in its name to count — judge by what
+the value *does* (authenticates something), not by the variable name's shape.
+Three separate real incidents during this project's life produced actual
+secret exposure into a conversation transcript this way — see `ISSUES.md` —
+which is why this section exists and is kept first in the file.
+
+- **Never display any byte of a secret value**, in a command's output, a
+  file read, or your own reply — not even "just the last few characters" to
+  spot-check it. Verify a secret was written/transmitted correctly
+  *structurally* instead: length (`wc -c`), presence (`grep -c`, or a
+  key-names-only listing), or a hash comparison. Never a value comparison
+  that requires printing the value to eyeball it.
+- **Never run a broad or unbounded command against a file known or likely to
+  hold secret material** — `cat`/`tail`/`head`/`echo`, and just as much a
+  `grep`/`Read` that isn't scoped to guarantee it can only ever match
+  non-secret content. `grep` returns whole *lines*, not matched tokens, so
+  even a pattern aimed at confirming a variable's name or searching for an
+  unrelated keyword can print a full secret value if it happens to occur on
+  the same line — this has actually happened twice in this project (a
+  `tail -c 20` on a `.env` line, and later a `grep` for an unrelated string
+  that shared a line with `GCP_SERVICE_ACCOUNT_KEY`). A pattern that
+  structurally cannot capture a value at all, e.g. `grep -oE '^[A-Z_0-9]+='`
+  (key names only, values discarded), is the *general shape* a safe
+  presence-check takes. **This is not a standing exception for `.env`
+  itself, even in that narrow form** — `.env` is covered by the absolute
+  "never open, any tool, full stop" rule below, which wins over this bullet
+  for that one file specifically: do not run even this narrow pattern
+  against `.env`; ask the user whether a var is set instead. (This bullet
+  has already been misread twice as licensing exactly that — see
+  `ISSUES.md` — so if a command's target is `.env`, the answer is always
+  "ask the user," full stop, regardless of how safe the pattern looks.) Do
+  not use the `Read` tool on a secret-bearing file for the same reason — it
+  returns the full file content into your context, which is exactly the
+  "display a byte of the value" failure mode in another guise.
+- **Never dump broad environment/config state.** `env`, `printenv`, bare
+  `set`, Python's `os.environ`, or serializing a settings/config object
+  wholesale (`print(settings)`, `settings.dict()`/`.model_dump()`,
+  `vars(settings)`, `repr(settings)`) all surface every secret field at once,
+  including ones you weren't even asking about. Read or pass individual
+  fields programmatically instead, and reduce any secret-bearing value to a
+  boolean/length/hash *before* it can reach a print statement, log line, or
+  tool-result — mirroring `bot/scripts/_render.py::env_vars()`'s documented
+  contract and `bot/scripts/deploy.py::sync_env()`'s
+  `print(f"pushed {key} (len {len(value)})")` convention (name + length,
+  never the value) — follow that same shape in any new ad hoc script that
+  touches secrets.
+- **Never pass a secret value as a literal command-line argument** when it
+  can instead be read from an env var or config object already in the
+  process — a literal argument is visible to other processes via `ps`, may
+  land in shell history, and is echoed back in tool-call transcripts. For
+  the same reason, do not enable verbose/debug HTTP logging (e.g. `curl -v`,
+  httpx debug logging) while a real credential is attached to the request —
+  it can print an `Authorization` header verbatim.
+- **Never let a secret-holding field's validation error or exception
+  traceback reach output un-redacted.** Some validators (e.g. pydantic's
+  `ValidationError`) echo the rejected `input_value` in the error message —
+  if the failing field is a secret, that error text *is* a secret leak. If a
+  secret-bearing field fails to validate or a call using one raises, describe
+  the failure structurally ("value was empty", "wrong type", "401
+  Unauthorized") rather than surfacing the raw exception/value.
+- **Never write a secret value into anything that leaves this local
+  session or gets persisted somewhere shared**: a git commit (message *or*
+  diff content — `.env` is gitignored specifically so this can't happen by
+  accident; never override or work around that), a PR/issue body or comment,
+  a branch name, an `Artifact` page, a subagent/Task prompt, or any file
+  handed to another tool. Committing `.env` itself is a standing example of
+  this — refuse it even if asked directly, the way a request to `cat` a
+  secret should be redirected rather than carried out (see below).
+- **A file-content diff surfaced automatically by the harness (e.g. a
+  "file changed externally" system-reminder) can dump full secret values
+  into your context without you running any command at all.** This has
+  happened in this project. This appears to happen for files the harness
+  is already tracking because you opened them (via `Read`/`Edit`) earlier
+  in the session — so the primary defense is upstream of the notification
+  itself: **never open a file that mixes secrets with other content (e.g.
+  `.env`) at all, for any reason, full stop** — not even a single-line
+  `Read`, not even an `Edit` whose `old_string`/`new_string` you believe are
+  both non-secret lines. If a value that happens to live in such a file
+  needs to change, ask the user to make that edit themselves rather than
+  touching the file yourself — treat this the same as asking them to check
+  a value you're not allowed to display. This is deliberately absolute
+  rather than "only touch the safe lines": it isn't fully verified that
+  narrow access prevents the harness from tracking (and later re-surfacing)
+  the whole file, so don't rely on scoped access as a mitigation for this
+  specific vector. (Operational config no longer requires this: non-secret
+  settings live in `.env.config`, which is safe to open and edit, and
+  provider/model/cap/cooldown changes also have redeploy-free CLI paths —
+  see README's "Changing operational config".)
+  **If, despite this rule, such a file is ever opened anyway (e.g. an
+  older path, a mistake, a subagent that didn't inherit this rule) and a
+  later "changed externally" notification fires for it, treat that as a
+  known, standing, recurring risk for the rest of the session — not a
+  one-off surprise — and apply the same never-compound-it response every
+  single time it happens, not just the first.**
+- **To change state, reach for this project's CLI — never for a file that
+  holds secrets.** Operational state (which provider and model are active,
+  which API-key slot) is changed through the `bot/scripts/` entry points --
+  `set_override.py` and its successors. Cooldown parameters and usage caps
+  are edited in `.env.config` (not secret-bearing, safe to open directly)
+  and pushed into the database with `bot/scripts/deploy.py --sync-config-db`
+  (also runs automatically as part of `--sync-env`) -- never by hand-editing
+  a secret-bearing file. Those scripts are agent-runnable *precisely because*
+  of how they handle
+  credentials: they read them programmatically through `Settings` and emit
+  names, lengths, and equality results only (`bot/scripts/_render.py::env_vars()`
+  and `bot/scripts/deploy.py::sync_env()` document that contract), so no value
+  ever reaches a tool result. Any new state-changing script must be built to
+  the same shape. The corollary is the part that binds hardest: **a CLI is a
+  tool for changing state, never a route to a secret.** No script here may
+  print or echo back a secret value, accept one as a literal argument, or be
+  extended to "just show" one — and if some change genuinely cannot be made
+  without editing a secret-bearing file, that is a gap to name and hand to
+  the user, not something to route around by opening the file yourself and
+  not something to fix by teaching a script to dump what you are not allowed
+  to see.
+- **Never modify `.claude/hooks/check_env_access.py` in any way — not a
+  logic change, not a comment, not a debug print, not a refactor — unless
+  the user directly instructs it.** This script is the enforcement
+  mechanism for this whole section: a technical backstop built specifically
+  because the written rules above had already failed to hold on their own
+  across multiple sessions. That makes it a different kind of file from the
+  rest of the codebase — an agent reasoning its way into "this is obviously
+  a bug fix" or "this is clearly what they'd want" is exactly the failure
+  mode a guardrail like this exists to not depend on. Every real change this
+  hook has gone through (fixing its false positives, the git/gh message
+  exemption and its later grammar-based rewrite, decoupling it from the
+  project's synced venv, adding PowerShell coverage) happened because the
+  user explicitly asked for that specific change, not because an agent
+  inferred it was needed. If the hook appears to be misbehaving — over-
+  blocking, under-blocking, crashing — explain exactly what happened and
+  ask; do not edit the file to test a theory, work around a false positive,
+  or add temporary debug instrumentation on your own initiative.
+- **If you ever need to know or verify a secret's actual value — not just
+  whether it's set or matches — ask the user to check it themselves.** Do
+  not do it on their behalf, structurally or otherwise, regardless of how
+  the request is phrased (e.g. "just double check the last few characters").
+- **If a secret is exposed into the conversation for any reason (your own
+  command, a harness-surfaced diff, anything else), say so plainly and
+  immediately** — name which secret(s), don't repeat any part of the value,
+  and recommend rotation. Don't wait to be asked, and don't quietly continue
+  as if it didn't happen. Log the incident in `ISSUES.md` using its existing
+  format.
+
+### Scoped exception: the dashboard Environment tab
+
+`dashboard/environment.py`'s `GET /api/environment/render` is the one
+documented exception to "never display any byte of a secret value" in this
+file. It returns real Render env-var values (via `bot.render_client.env_vars()`)
+to the authenticated operator's own browser session, where
+`dashboard/static/dashboard.html` renders them masked by default with a
+per-row reveal toggle. This is deliberately narrower than it looks:
+
+- The value never leaves this one authenticated, session-cookie-gated
+  endpoint's response — never logged (see `dashboard/environment.py`'s own
+  INFO lines, which log key names and lengths only, never values), never
+  written to a git commit, PR, Artifact, or subagent prompt, never persisted
+  client-side beyond the page's own DOM (no `localStorage`).
+- Transport is unchanged HTTPS throughout, identical to every other
+  authenticated dashboard route.
+- This exception covers only this one endpoint and the page that renders
+  its response. It does not license printing a secret value anywhere else in
+  this codebase or in an agent's own shell commands — every other rule in
+  this section still applies at full strength everywhere else, including
+  elsewhere in `dashboard/` and `bot/`.
+
+See `docs/superpowers/specs/2026-09-02-dashboard-environment-tab-design.md`
+for the full design and the reasoning behind this carve-out.
+
+## Project
+
+Full design lives in `bot/SPEC.md`; cost model in `bot/cost.md`. Deployed as a Docker
+container on Render (free tier) with the queue in Supabase Postgres, kept warm
+by a free external pinger — see `bot/cost.md` for the alternatives that were weighed.
+
+Module boundaries and per-module contracts live in `bot/CLAUDE.md`, which loads
+when working under `bot/`.
+
+## Conventions
+
+- Async throughout; one-purpose modules with narrow interfaces.
+- Secrets only via env vars; **no secret is ever logged**. See "Secret
+  handling" at the top of this file for the full rule set — it is the
+  highest-priority section and binds an agent's own ad hoc shell commands
+  during manual/operational work, not just application code.
+- **Never commit on someone else's behalf without being asked**, even to reach
+  a clean working tree. If resolving a merge or other cleanup requires
+  temporarily setting aside someone else's pre-existing uncommitted changes
+  (e.g. via `git stash`), restore them **uncommitted**, exactly as found —
+  committing them for tidiness is still an unrequested commit.
+- **Partial failure is always visible** in the PR comment (a failed specialist
+  renders a real row) — never silently dropped.
+- **Before pushing, always run the full test suite (`uv run pytest -v`) and
+  ruff (`uv run ruff check .`), and fix whatever either finds.** Never push
+  with a red suite or an unresolved lint error, and never skip either check
+  because a change "looks" too small to affect them.
+- **After merging to `main` locally, always build the deploy image**
+  (`docker build -f bot/Dockerfile .` from the repo root) and confirm it
+  builds and boots (`docker run --rm <image> python -c "import bot.main"`
+  or equivalent) before pushing/deploying. `pytest`/`ruff` run against the
+  full workspace venv, not the `--package bot`-only sync the image actually
+  uses, so a workspace-boundary dependency gap (e.g. a dep declared in
+  `dashboard/pyproject.toml` but needed at `bot` import time, only synced
+  under `--package bot`) passes both checks and still crashes on deploy —
+  this is exactly how the 2026-09-03 `python-multipart` deploy crash slipped
+  through. A green test suite does not substitute for this.
+- **When designing or changing a web page's UI (`dashboard/static/`,
+  `onboarding/static/`), use the Playwright tool to actually look at it**
+  before calling the work done — screenshot both themes (light/dark) and at
+  a mobile viewport width, not just light-theme desktop. Reading the HTML/CSS
+  and reasoning about the layout is not a substitute: the 2026-09-03
+  Environment-tab CSS-grid blowout (a `1fr` column forced to ~1700px by one
+  unwrapped child, silently stretching every other input sharing that
+  column) and a mobile-only bug where the vars table squeezed a value input
+  to invisible near-zero width were both invisible from source alone and
+  only surfaced by rendering the page and measuring/screenshotting it.
+
+## Substitutions from the brief (and why)
+
+- **`google-genai`** instead of the legacy `vertexai.generative_models` SDK —
+  same Vertex backend, and it is what makes the one-env-var provider swap trivial.
+- **`gemini-flash-latest`** instead of `gemini-2.5-flash` — the brief's model is
+  deprecated/removed. The alias is pinnable to a dated version via env for demo
+  reproducibility.
+- **`vertex` adapter reinstated (2026-08-14)** — it was removed when Vertex AI's
+  payment-card requirement collided with this project's no-card constraint (see
+  `guide/background/providers.md`), leaving it live-unrunnable and mock-only.
+  GCP billing/ADC access later became available, so `vertex` is back as a
+  real, live-runnable third provider, matching `bot/SPEC.md`'s stated default.
+  Its credential is a GCP
+  service-account identity rather than an API-key string:
+  `GCP_SERVICE_ACCOUNT_KEY` (hosted, numbered slots, base64, verbatim only —
+  see the 2026-08-16 credential-convention design) → implicit ADC, resolved
+  in `bot/providers/vertex_credentials.py`. No secret reaches Postgres — only
+  the slot index, exactly as for gemini/groq.
+
+## Cost
+
+Documented production total ≈ **$8–10/mo** at brief scale (20 PRs/day). The demo
+runs at **$0** on free tiers + the $300 GCP trial credit. Cost is graded as a
+documented calculation, not as actual spend — see `bot/cost.md`.
+
+## LLM API testing hygiene (avoid Trust & Safety flags)
+
+Gemini AI-Studio access got **account-level blocked** (`403 PERMISSION_DENIED:
+Your project has been denied access`) during this build, confirmed across
+multiple models, multiple projects, and multiple separate Google accounts —
+per Google's own AI Developer Forum, this is an automated Trust & Safety flag,
+and one documented trigger is **hitting repeated 429s / testing many models
+back-to-back without backoff**, which is exactly what happened during
+troubleshooting here. The only documented fix is attaching GCP billing, which
+this project's setup deliberately avoids (see `guide/background/providers.md`)
+— so once flagged, a provider is effectively lost for the rest of the demo.
+(**Update, 2026-08-10:** a later API key update resolved this specific block
+— see `guide/background/providers.md` — but that doesn't change the rule
+below; a flag is still a real risk that this discipline exists to avoid, not
+something to rely on being reversible.)
+**Rules to avoid repeating this:**
+
+- **Never loop/burst live calls across many models or keys** to "see what
+  sticks." One deliberate, single live call per real verification need.
+- **Prefer mocked/cassette tests for exploration.** Reserve real network calls
+  for the one live-verification step a build step actually requires (per
+  `bot/SPEC.md` section 8's testing strategy) — not for debugging or model-shopping.
+- **If a provider starts returning 403/429, stop calling it immediately** and
+  investigate via docs/support channels rather than retrying with different
+  models/keys in quick succession — retrying does not help and each attempt
+  is one more data point that can reinforce an abuse-pattern flag. This
+  extends to OAuth/auth-layer failures too (e.g. `invalid_scope`,
+  `RefreshError`) — same failure shape, same stop-and-diagnose principle,
+  not a "try a different scope/key" situation.
+- **The "one deliberate live call" limit is about generation/completion
+  requests** — the ones that cost money and carry provider-abuse-flag risk.
+  It does **not** apply to lightweight metadata/listing calls (e.g. checking
+  whether a model ID exists in a provider's catalog). Checking several
+  candidate values via a listing/existence endpoint in one pass is fine, and
+  is the right way to narrow down configuration *before* making the one
+  deliberate generation call — not a workaround for the rule above.
+- This applies to **any** LLM provider's free tier, not just Gemini — Groq and
+  future alternatives should get the same restraint.
+
+## Plan-execution / multi-agent process hygiene
+
+Lessons from running Superpowers-style plans through subagent-driven
+development on this project (see `ISSUES.md` for the incidents these
+generalize from):
+
+- **A task brief's "stop and report" instruction is a hard stop, not a
+  suggestion.** If an implementer hits an unpredicted failure a brief says to
+  stop on, it must actually stop and return control — not self-resolve the
+  problem and mention the deviation in its report afterward. A controller
+  reviewing a report after the fact cannot approve or reject work that has
+  already been done; by the time it reads "I deviated because...", the
+  deviation has already happened.
+- **When correcting or overriding part of a multi-sentence passage, re-read
+  the whole passage afterward for internal consistency** — not just the
+  clause that was changed. A targeted fix to one sentence is exactly the kind
+  of edit that leaves a contradiction elsewhere in the same passage
+  undetected by the person who made it.
+- **Task-scoped review checks conformance to the brief, not correctness of
+  the brief itself.** Code a plan hands an implementer verbatim — especially
+  for external-API/auth integration (credential construction, OAuth scopes,
+  client setup) — needs the same scrutiny as any other code. Matching the
+  brief exactly does not mean the brief was right; a bug embedded in a plan's
+  own provided snippet will sail through every task-scoped review that only
+  checks "does this match what was asked." Flag this class of code for extra
+  suspicion specifically at final/whole-branch review, and don't assume
+  a whole-branch review that already had per-task reviews pass is redundant —
+  it is often the first review that would even think to distrust the plan's
+  own code.
+- **Documentation describing the outcome of a live-verification step must be
+  written after that step actually runs, not drafted in advance assuming
+  success.** If a plan's task text describes what a doc should say about a
+  pending live call's result, treat that text as a placeholder to revise
+  based on the actual outcome, not as literal instructions to transcribe.
+- **When a plan is authored in the same session that will execute it via a
+  worktree-based flow, write or commit the plan file *inside* the worktree**
+  (or commit it to the branch before creating the worktree). Writing a file
+  to the main checkout and then branching off via `git worktree add` leaves
+  that file invisible to the new worktree, since worktrees only materialize
+  committed content.
+- **Before merging a feature branch into any target branch, check the
+  *target* branch for pre-existing uncommitted changes first** (`git status`
+  there, not just on the branch being merged in) — a conflicting local edit
+  or untracked file on the target can fail the merge in a way that's
+  confusing to debug from the merge failure alone.
+- **Don't ask an implementer subagent to reconfirm a full-suite baseline at
+  the start of every task.** Trust the SDD ledger's last-recorded green
+  state from the prior task's own final run instead. The shared
+  `subagent-driven-development` skill's implementer template already asks
+  for exactly one full-suite run, right before committing — a controller
+  adding its own extra "first, confirm baseline" instruction on top of that
+  is a habit this project fell into in earlier stages, not something the
+  template requires. For a plan's first task, the worktree-setup step that
+  precedes dispatch is normally what already confirms things are green, so
+  there's usually no real gap to fill even there. Reason: measured directly
+  during the 2026-08-19/20 test-suite-performance work — the doubling was
+  never principled, and the case for it is weaker still now that the suite
+  itself is faster (full suite 57s serial → 35s at `-n 4`; the `-m "not db"`
+  fast-iteration subset 31s → 20s — see
+  `docs/superpowers/specs/2026-08-19-test-suite-performance-design.md`
+  section 8). Only add an explicit baseline-reconfirm instruction when
+  there's a concrete reason to distrust the ledger for *this* task
+  specifically — manual edits since the last confirmed-green run, a resumed
+  session after a long gap, or a worktree/branch switch — not as a default
+  precaution on every task.
+- **Every parked/deferred Minor finding from a task-scoped or final
+  whole-branch review must be logged in `ISSUES.md`'s Parked Issues section
+  before the branch is considered done** — not left only in the SDD
+  ledger (deleted once the branch merges) or in a session's own memory,
+  either of which loses the finding the moment the workspace is cleaned up
+  or the conversation ends. Log it there even when a review explicitly
+  judges a finding "no action needed" / harmless-as-is — that judgment call
+  belongs in the entry's **Why parked** line, not as a reason to skip
+  logging it at all.
