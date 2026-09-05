@@ -199,6 +199,30 @@ mkdocs site — no docs site) entirely.
 loose `docs/*.md` handoff notes, `brief.md` (once this restructuring is
 reviewed and merged — it documents its own deletion).
 
+### 8. Final step: drop `brief.md` from `.gitignore`
+
+`brief.md` is deleted as part of this restructure (point 7 above). Once it's
+gone, its `.gitignore` entry (currently line 48) is dead weight referencing
+a file that will never exist again in this repo — remove that line as the
+last step of the restructure, after `brief.md` itself has been deleted and
+everything else has been verified green.
+
+## Implementation caution: broad searches during the move
+
+This restructure involves a lot of mechanical find-and-update work across
+many files (import paths, `bot/`-file references in `CLAUDE.md`, etc.), which
+tempts a broad recursive `grep -rn`/`grep -rl` across the whole repo tree.
+`.env` (real secret values) and `.env.config` (operational config, not
+secret but not the target of these searches either) must always be
+excluded from any such broad search — a pattern aimed at an unrelated
+keyword can still match and print a full line containing a secret value if
+it happens to share a line with one (see root `CLAUDE.md`'s secret-handling
+section for the standing incidents this generalizes from). Concretely: use
+`grep -rn --exclude='.env' --exclude='.env.config' ...` (or equivalent
+path-scoped alternatives — e.g. explicitly listing the file types actually
+being edited, like `*.py`/`*.md`) for every repo-wide search this
+restructure requires, never a bare `grep -rn` over the full tree.
+
 ## Testing
 
 - Full suite (`uv run pytest -v`) green against the trimmed `tests/` +
