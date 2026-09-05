@@ -23,7 +23,7 @@ import respx
 from google.auth import exceptions as google_auth_exceptions
 from google.genai import errors as genai_errors
 
-from onboarding import llm_client
+import llm_client
 
 # The private key below is a locally-generated throwaway RSA key used only
 # for local signing in these tests -- every HTTP call is mocked below, so

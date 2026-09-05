@@ -14,9 +14,9 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from onboarding import session_store
-from onboarding.config import settings
-from onboarding.router import router
+import session_store
+from config import settings
+from router import router
 
 
 @contextlib.asynccontextmanager
@@ -25,13 +25,13 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "DATABASE_URL is unset — refusing to start. The wizard's "
             "server-side session store needs its own dedicated Postgres "
-            "connection string; see onboarding/.env.example."
+            "connection string; see .env.example."
         )
     if not settings.onboarding_session_encryption_key:
         raise RuntimeError(
             "ONBOARDING_SESSION_ENCRYPTION_KEY is unset — refusing to "
             "start. Needed to encrypt every credential value the session "
-            "store writes; see onboarding/.env.example."
+            "store writes; see .env.example."
         )
     try:
         Fernet(settings.onboarding_session_encryption_key.encode("ascii"))

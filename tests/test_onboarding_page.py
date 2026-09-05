@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from httpx import ASGITransport, AsyncClient
 
-from onboarding.main import app
+from main import app
 from bot.scripts.create_github_app import MANIFEST_EVENTS, MANIFEST_PERMISSIONS
 
 FRAME_IDS = [

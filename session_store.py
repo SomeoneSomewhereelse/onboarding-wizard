@@ -31,7 +31,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool, PoolTimeout
 
-from onboarding.config import settings
+from config import settings
 
 SESSION_TTL = timedelta(hours=4)
 _POOL_TIMEOUT_SECONDS = 10

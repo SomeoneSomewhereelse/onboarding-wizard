@@ -1,6 +1,4 @@
-"""onboarding/'s own Settings — a separate deployed service from bot/, so
-this does NOT import bot/config.py's Settings (per onboarding/CLAUDE.md's
-no-shared-credential-path rule)."""
+"""This service's own Settings."""
 from __future__ import annotations
 
 from pydantic import field_validator

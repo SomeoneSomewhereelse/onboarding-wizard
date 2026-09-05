@@ -6,9 +6,9 @@ import pytest
 from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 
-from onboarding import session_store
-from onboarding.config import settings
-from onboarding.main import app, lifespan
+import session_store
+from config import settings
+from main import app, lifespan
 
 
 async def _client() -> AsyncClient:

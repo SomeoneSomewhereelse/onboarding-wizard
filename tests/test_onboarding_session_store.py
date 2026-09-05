@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from cryptography.fernet import Fernet
 
-from onboarding import session_store
-from onboarding.config import settings
+import session_store
+from config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +19,7 @@ def _configure_encryption_key(monkeypatch):
     )
 
 
-pytestmark = pytest.mark.usefixtures("onboarding_db")
+pytestmark = pytest.mark.usefixtures("db")
 
 
 def test_create_session_mints_a_fresh_id_each_call():

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from httpx import ASGITransport, AsyncClient
 
-from onboarding.main import app
+from main import app
 
 STRINGS_KEYS = [
     "page_title", "heading", "lede", "theme_light", "theme_dark", "theme_system",

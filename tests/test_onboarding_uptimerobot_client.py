@@ -11,7 +11,7 @@ import json
 import httpx
 import respx
 
-from onboarding import uptimerobot_client
+import uptimerobot_client
 
 SENTINEL_KEY = "ur_SENTINEL_DO_NOT_LOG_9f3a"
 MONITORS_URL = f"{uptimerobot_client.UPTIMEROBOT_API_BASE}/monitors"

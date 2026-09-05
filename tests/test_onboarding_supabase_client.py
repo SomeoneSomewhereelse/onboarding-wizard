@@ -12,7 +12,7 @@ import logging
 import httpx
 import respx
 
-from onboarding import supabase_client
+import supabase_client
 
 ORGS_URL = "https://api.supabase.com/v1/organizations"
 PROJECTS_URL = "https://api.supabase.com/v1/projects"

@@ -6,7 +6,7 @@ section 5."""
 
 from __future__ import annotations
 
-from onboarding.config import Settings
+from config import Settings
 
 
 def test_no_public_base_url_setting_exists():

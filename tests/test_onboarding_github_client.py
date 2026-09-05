@@ -15,7 +15,7 @@ import requests as requests_lib
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from onboarding import github_client
+import github_client
 
 WEBHOOK_URL = "https://my-service.onrender.com/webhook"
 

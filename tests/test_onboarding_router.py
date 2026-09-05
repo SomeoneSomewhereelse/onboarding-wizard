@@ -6,16 +6,14 @@ from __future__ import annotations
 
 from httpx import ASGITransport, AsyncClient
 
-from onboarding import (
-    github_client,
-    llm_client,
-    render_client,
-    router,
-    session_store,
-    supabase_client,
-    uptimerobot_client,
-)
-from onboarding.main import app
+import github_client
+import llm_client
+import render_client
+import router
+import session_store
+import supabase_client
+import uptimerobot_client
+from main import app
 
 SENTINEL_KEY = "rnd_SENTINEL_DO_NOT_LOG_9f3a"
 # PEM-shaped so a leak would be unmistakable in a diff or a response body.

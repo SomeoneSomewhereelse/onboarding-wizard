@@ -7,7 +7,7 @@ from __future__ import annotations
 import httpx
 import respx
 
-from onboarding import render_client
+import render_client
 
 SENTINEL_KEY = "rnd_SENTINEL_DO_NOT_LOG_9f3a"
 OWNERS_URL = f"{render_client.RENDER_API_BASE}/owners"

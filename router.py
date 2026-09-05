@@ -13,14 +13,12 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
-from onboarding import (
-    github_client,
-    llm_client,
-    render_client,
-    session_store,
-    supabase_client,
-    uptimerobot_client,
-)
+import github_client
+import llm_client
+import render_client
+import session_store
+import supabase_client
+import uptimerobot_client
 
 router = APIRouter()
 
