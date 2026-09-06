@@ -127,12 +127,9 @@ for the full design.
   ruff (`uv run ruff check .`), and fix whatever either finds.** Never push
   with a red suite or an unresolved lint error, and never skip either check
   because a change "looks" too small to affect them.
-- **After merging to `main` locally, always build the deploy image**
-  (`docker build -f Dockerfile .` from the repo root) and confirm it
-  builds and boots before pushing/deploying. `pytest`/`ruff` run against the
-  full workspace venv, not the image's own dependency sync, so a
-  workspace-boundary dependency gap can pass both checks and still crash on
-  deploy. A green test suite does not substitute for this.
+- **After merging to `main` locally, always invoke the `deploy-verify`
+  skill before pushing/deploying** — a green `pytest`/`ruff` run does not
+  substitute for this (see the skill for why).
 - **When changing `static/index.html`'s markup, CSS, or layout logic, invoke
   the `ui-visual-review` skill before calling the work done** — reading
   HTML/CSS and reasoning about layout is not a substitute for actually
