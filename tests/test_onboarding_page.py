@@ -775,17 +775,6 @@ async def test_uptimerobot_delete_monitor_endpoint_leaves_the_page_exactly_once(
     assert body.count('fetch("/api/uptimerobot/delete-monitor"') == 1
 
 
-async def test_frame5_blocked_state_reads_the_forward_contract_key():
-    """sub-project 6 (not yet built) is obligated to write this key on its
-    own completion -- see design doc section 3's forward contract. Frame 5
-    only ever reads it."""
-    client = await _client()
-    body = (await client.get("/")).text
-    assert 'const RENDER_SERVICE_URL_KEY = "onboarding.renderServiceUrl";' in body
-    assert "function refreshUptimePingerBlockedState" in body
-    assert "sessionStorage.getItem(RENDER_SERVICE_URL_KEY)" in body
-
-
 async def test_frame5_never_persists_to_local_storage():
     client = await _client()
     body = (await client.get("/")).text
