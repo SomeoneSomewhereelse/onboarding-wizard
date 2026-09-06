@@ -231,6 +231,19 @@ optional:**
   request. Do not special-case a "simple" integration into calling an
   external API directly from browser JS just because it doesn't strictly
   need server-side confidentiality (see design doc section 3 for why).
+- **Any new frame involving a cross-origin redirect (OAuth or otherwise)
+  must not rely on `sessionStorage` or any other tab-scoped state to survive
+  the round trip.** This is the generalized lesson behind the whole
+  server-side-session redesign below, not just Supabase-specific history: a
+  mobile browser was observed destroying `sessionStorage` (and the
+  browsing context holding it) mid-flow, most sharply during a redirect,
+  resetting the whole wizard including earlier frames' already-validated
+  data. Whatever the redirect's return leg needs must be persisted
+  server-side (`session_store.py`) *before* initiating the redirect, and
+  `GET /api/session`'s `restoreFromSession()` — never `sessionStorage` — is
+  what reconstructs UI state on return or reload. A new frame that adds its
+  own redirect leg (there is currently only Supabase's) must follow this
+  same pattern from the start, not discover the hard way that it needs to.
 
 ## What the implementation adds to these rules
 
