@@ -94,7 +94,19 @@ Three new fixtures in `tests/conftest.py`:
   truncation needed, since route interception keeps test assertions off
   the real session store's data.
 - **`browser`** (session-scoped): launches one headless Chromium instance
-  via `playwright.async_api.async_playwright()`, closed at session end.
+  via **Playwright's sync API**
+  (`playwright.sync_api.sync_playwright()`), closed at session end. The
+  sync API, not the async one, is a deliberate correction from an earlier
+  draft of this section: this project's existing tests are all `async def`
+  under `pytest-asyncio`'s `asyncio_mode = "auto"`, but Playwright's sync
+  API refuses outright to run from inside a thread with an active asyncio
+  event loop — exactly what every existing async test runs inside. Rather
+  than fight `pytest-asyncio`'s per-test event-loop scoping to make the
+  *async* Playwright API's session-scoped fixtures work, the three new
+  fixtures and every test in the new file are **plain, synchronous** (no
+  `async`/`await`, no `asyncio_mode` involvement at all) — pytest runs sync
+  and async tests side by side in the same session without conflict, so
+  this is purely a per-file style choice, not a project-wide one.
 - **`page`** (function-scoped): opens a fresh incognito-style browser
   context and page from `browser` against `live_app_url`, yields it, and
   closes the context after the test — so `sessionStorage`/cookies never
@@ -110,9 +122,11 @@ assert on real, live DOM state (`page.is_visible(...)`,
 
 ## 4. Scope: which tests move, and where
 
-New file: `tests/test_onboarding_page_browser.py`, using the fixtures above
-and `pytest-asyncio`'s existing `asyncio_mode = "auto"` (already project-wide
-in `pyproject.toml`, no per-test decoration needed).
+New file: `tests/test_onboarding_page_browser.py`, using the fixtures above.
+Its tests are plain synchronous `def test_...` functions (see section 3's
+sync-API correction) — `pytest-asyncio`'s `asyncio_mode = "auto"` only wraps
+`async def` tests, so it has no effect on this file and needs no
+configuration change.
 
 Three tests move from substring checks to real browser behavior, each
 replacing (not duplicating) its existing substring-only counterpart:
