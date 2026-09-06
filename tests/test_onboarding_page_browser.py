@@ -102,3 +102,17 @@ def test_restore_from_session_resumes_polling_for_a_supabase_project_without_a_c
     page.wait_for_selector("#supabase-provisioning-section", state="visible")
     assert not page.is_visible("#supabase-connect-section")
     assert not page.is_visible("#supabase-org-section")
+
+
+def test_language_switch_sets_dir_for_rtl(page, live_app_url):
+    """Replaces tests/test_onboarding_i18n.py's test of the same name,
+    which asserted an exact literal source line rather than the actual
+    resulting behavior -- more brittle to a harmless refactor of that
+    line, and only a proxy for whether dir actually changes."""
+    page.goto(live_app_url)
+    assert page.get_attribute("html", "dir") == "ltr"
+
+    page.click("#langToggleBtn")
+    page.check('input[name="lang"][value="he"]')
+
+    assert page.get_attribute("html", "dir") == "rtl"

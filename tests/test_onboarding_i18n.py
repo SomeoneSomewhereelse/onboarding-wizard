@@ -49,12 +49,6 @@ async def test_theme_switch_uses_the_data_theme_attribute():
     assert ':root[data-theme="dark"]' in body
 
 
-async def test_language_switch_sets_dir_for_rtl():
-    client = await _client()
-    body = (await client.get("/")).text
-    assert 'document.documentElement.setAttribute("dir", lang === "he" ? "rtl" : "ltr")' in body
-
-
 async def test_popup_positioning_is_rtl_aware():
     client = await _client()
     body = (await client.get("/")).text
