@@ -22,6 +22,13 @@ uv sync --all-extras --dev
 cp .env.example .env
 ```
 
+The browser-behavior tests (`tests/test_onboarding_page_browser.py`) need
+Chromium's binary installed once per machine:
+
+```bash
+uv run playwright install chromium
+```
+
 Fill in `.env`'s two required settings:
 
 - `DATABASE_URL` — this service's own dedicated Postgres, used only for its

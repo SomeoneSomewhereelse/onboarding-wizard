@@ -63,4 +63,5 @@ addopts = "-n 4 --dist=loadgroup --import-mode=importlib"
 markers = [
     "db: transitively touches the shared Postgres via the db fixture (auto-applied by tests/conftest.py's pytest_collection_modifyitems hook, not meant to be added by hand)",
     "xdist_meta: exercises real xdist worker subprocess scheduling via pytester -- slow, excluded from the fast-iteration `-m` filter",
+    "browser: drives a real headless Chromium instance via Playwright against the live app (auto-applied by tests/conftest.py's pytest_collection_modifyitems hook, not meant to be added by hand) -- slower than the rest of the suite, excluded from the fast-iteration `-m` filter",
 ]

@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
+      - name: Install Playwright's Chromium browser
+        run: uv run playwright install --with-deps chromium
+
       - name: Lint (ruff)
         run: uv run ruff check .
 

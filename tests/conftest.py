@@ -4,9 +4,13 @@ via testcontainers (local dev — Docker required). Never touches Supabase."""
 from __future__ import annotations
 
 import os
+import socket
+import threading
+import time
 from urllib.parse import urlsplit
 
 import pytest
+from cryptography.fernet import Fernet
 
 # Hosts treated as "local/CI Postgres, safe for tests to TRUNCATE". Anything
 # else (e.g. a Supabase pooler hostname) is refused unless the operator
@@ -109,6 +113,89 @@ def db_query(db_url):
     return _query
 
 
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture(scope="session")
+def live_app_url(db_url):
+    """Boots the real FastAPI app (main:app) via uvicorn in a background
+    thread, bound to a free local port -- for Playwright's browser fixture
+    to navigate against. Depends on db_url purely so main.py's lifespan can
+    open a real Postgres connection and boot at all (it raises RuntimeError
+    otherwise); individual browser tests never touch this database
+    directly for their own assertions (they intercept the specific
+    /api/* responses they need via page.route()), so this never depends on
+    the per-test `db` fixture's truncation. Settings are mutated directly
+    (not via monkeypatch) since this is a one-time, session-scoped setup
+    with nothing else to restore."""
+    import uvicorn
+
+    from config import settings as onboarding_settings
+
+    onboarding_settings.database_url = db_url
+    onboarding_settings.onboarding_session_encryption_key = Fernet.generate_key().decode()
+
+    import main as onboarding_main
+
+    port = _free_local_port()
+    server = uvicorn.Server(
+        uvicorn.Config(onboarding_main.app, host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if not server.started:
+        raise RuntimeError("live_app_url: uvicorn server did not start within 10s")
+
+    yield f"http://127.0.0.1:{port}"
+
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest.fixture(scope="session")
+def browser():
+    """One headless Chromium instance for the whole test session. Sync
+    Playwright API deliberately, not async -- see
+    docs/superpowers/specs/2026-09-06-onboarding-browser-tests-design.md
+    section 3: the async API cannot run inside an active asyncio event
+    loop, which every async test in this project runs inside."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        chromium = playwright.chromium.launch(headless=True)
+        yield chromium
+        chromium.close()
+
+
+@pytest.fixture
+def page(browser, live_app_url):
+    """A fresh incognito-style browser context and page per test -- so
+    sessionStorage/cookies never leak between tests, matching the
+    isolation every other fixture in this file already gives."""
+    context = browser.new_context()
+    new_page = context.new_page()
+    yield new_page
+    context.close()
+
+
+def _uses_real_browser(item: pytest.Item) -> bool:
+    """True if item's fixture closure includes `page` -- the fixture every
+    real browser test requests, directly or (via live_app_url -> db_url)
+    transitively also picking up the existing `db` marker/xdist_group
+    below, which is intentional: it keeps browser tests grouped onto the
+    same xdist worker as other Postgres-touching tests rather than having
+    multiple workers each spin up their own live server + Chromium
+    instance."""
+    return "page" in item.fixturenames
+
+
 def _touches_shared_postgres(item: pytest.Item) -> bool:
     """True if item's fixture closure includes db_url -- the root fixture
     that db, db_exec, and db_query all depend on, and that some tests
@@ -145,3 +232,5 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if _touches_shared_postgres(item):
             item.add_marker(pytest.mark.db)
             item.add_marker(pytest.mark.xdist_group(name="db"))
+        if _uses_real_browser(item):
+            item.add_marker(pytest.mark.browser)
