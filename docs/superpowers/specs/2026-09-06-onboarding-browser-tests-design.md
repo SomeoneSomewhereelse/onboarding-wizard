@@ -48,12 +48,24 @@ than necessary).
   closest to how the app is actually served, and leaves the door open for a
   future browser test that needs a real relay endpoint's real routing (not
   just its response shape).
-- **Route interception instead of a real database.** Any test needing an
-  `/api/*` response uses Playwright's `page.route()` to intercept the
-  request and return a canned JSON body, rather than exercising the real
-  Postgres-backed session store. New browser tests need no `db`/
-  `testcontainers` fixture at all, and stay consistent with this project's
-  "no real network call in the test suite" convention.
+- **Route interception for test-relevant responses, but the live app still
+  needs a real (test) Postgres to boot.** Any test needing an `/api/*`
+  response uses Playwright's `page.route()` to intercept the request and
+  return a canned JSON body, rather than exercising the real Postgres-backed
+  session store's business logic — keeping individual test *assertions*
+  consistent with this project's "no real network call in the test suite"
+  convention. **Correction (caught during plan-writing, before any code was
+  written):** the spec originally claimed browser tests need no
+  `db`/`testcontainers` fixture *at all*. That's wrong at the fixture-setup
+  level: `main.py`'s `lifespan` eagerly calls `session_store.init_pool()`
+  (a real Postgres connection + schema DDL) and raises `RuntimeError` if
+  `DATABASE_URL`/`ONBOARDING_SESSION_ENCRYPTION_KEY` are unset or
+  unreachable, so the live server itself cannot start at all without a real
+  reachable Postgres and a valid Fernet key — independent of whether any
+  single test's own assertions touch the database. See section 3's
+  `live_app_url` fixture for the corrected shape (it depends on the
+  existing `db_url` fixture for boot purposes only, never the per-test `db`
+  fixture's truncation).
 - **Replace, don't duplicate.** The three tests named in section 4 below
   are converted outright — their substring-check version is deleted, not
   kept alongside the new browser version. Every other existing test in
@@ -70,13 +82,17 @@ than necessary).
 
 Three new fixtures in `tests/conftest.py`:
 
-- **`live_app_url`** (session-scoped): starts `uvicorn.Server` running
-  `main:app` in a background thread, bound to `127.0.0.1` on an
-  OS-assigned free port (port `0`), waits for it to accept connections,
-  yields the base URL, and shuts the server down at session end. No
-  `DATABASE_URL`-backed session store is required for this server instance
-  to boot — routes exercised by the migrated tests don't touch it directly
-  (interception handles anything that would).
+- **`live_app_url`** (session-scoped, depends on the existing `db_url`
+  fixture): monkeypatches `config.settings.database_url` to `db_url` and
+  `config.settings.onboarding_session_encryption_key` to a freshly
+  generated Fernet key (needed purely so `main.py`'s `lifespan` boots
+  without raising — see the correction in section 2), then starts
+  `uvicorn.Server` running `main:app` in a background thread, bound to
+  `127.0.0.1` on an OS-assigned free port (port `0`), waits for it to
+  accept connections, yields the base URL, and shuts the server down at
+  session end. Never depends on the per-test `db` fixture — no table
+  truncation needed, since route interception keeps test assertions off
+  the real session store's data.
 - **`browser`** (session-scoped): launches one headless Chromium instance
   via `playwright.async_api.async_playwright()`, closed at session end.
 - **`page`** (function-scoped): opens a fresh incognito-style browser

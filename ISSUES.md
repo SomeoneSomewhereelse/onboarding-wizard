@@ -161,6 +161,12 @@ accidentally exercise the refusal path instead of the real one._
 - **Found during:** Final whole-branch review of `docs/superpowers/plans/2026-09-05-onboarding-wizard-restructure.md` — 79 deleted spec/plan filenames still cross-referenced, with no pointer to the sibling `~/pr-review-bot` repo's history outside `ISSUES.md`'s own intro.
 - **Update (2026-09-05):** closed — pointer sentence added to README's "Related project" section.
 
+### README.md's local-dev section doesn't mention Postgres/Docker is required to run the full test suite
+- **Found during:** Writing the implementation plan for `docs/superpowers/specs/2026-09-06-onboarding-browser-tests-design.md` — caught before any plan code was written, not a review of shipped code.
+- **What:** The new `live_app_url` browser-test fixture depends on the existing `db_url` fixture purely so `main.py`'s `lifespan` can boot (it eagerly opens a real Postgres connection and raises `RuntimeError` otherwise — see the spec's section 2 correction). This was already true for every `db`-marked test (via `DATABASE_URL` or a local testcontainers/Docker fallback), but was easy to miss since only a subset of the suite needed it; the new `browser`-marked tests make a locally-available Postgres (real or Docker-backed) load-bearing for a second, independent slice of the suite. `README.md`'s "Local development" section currently only documents `uv sync` + `.env` + `uv run pytest -v`, with no mention of Docker/Postgres being required at all for a `DATABASE_URL`-less local run.
+- **Why parked:** Noted while writing the plan, not fixed in the same pass — the plan itself doesn't touch README's dev-setup prose beyond the one-line Playwright-install addition the spec already calls for.
+- **Follow-up:** Add a sentence to README's "Local development" section noting that running the full suite locally without a `DATABASE_URL` set requires Docker (for testcontainers' throwaway Postgres) — both for `db`-marked tests (pre-existing) and now `browser`-marked tests (new).
+
 ---
 
 ## Design Gaps
