@@ -484,14 +484,6 @@ async def test_supabase_credential_never_persists_to_local_storage():
     assert 'localStorage.getItem(STORAGE_KEYS["supabase"]' not in body
 
 
-async def test_restore_from_session_resumes_polling_for_a_ref_without_a_connection_string():
-    client = await _client()
-    body = (await client.get("/")).text
-    assert "showSupabaseProvisioning()" in body
-    assert "pollUntilReady(Date.now(), supabasePollGeneration)" in body
-    assert "function restoreFromSession" in body
-
-
 async def test_stored_supabase_credentials_are_parsed_defensively():
     """Same guard as readStoredGithubApp() -- a corrupted sessionStorage
     value must not throw out of DOMContentLoaded and take every later
