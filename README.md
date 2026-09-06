@@ -48,6 +48,15 @@ uv run pytest -v
 uv run ruff check .
 ```
 
+Running the full suite without a `DATABASE_URL` set requires Docker: tests
+that touch the session store (`-m db`) and the browser-behavior tests
+(`-m browser`, which boot the real app and therefore need it too) fall
+back to spinning a throwaway Postgres via testcontainers when no
+`DATABASE_URL` is present. [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+works for this the same as Docker Engine — `testcontainers` just needs a
+reachable Docker daemon. With a real `DATABASE_URL` set (e.g. in `.env`),
+Docker isn't needed at all.
+
 ## Deployment
 
 Deployed on Render as a single Docker web service (`render.yaml`,
