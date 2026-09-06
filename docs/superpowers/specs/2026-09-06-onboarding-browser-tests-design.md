@@ -93,20 +93,40 @@ Three new fixtures in `tests/conftest.py`:
   session end. Never depends on the per-test `db` fixture — no table
   truncation needed, since route interception keeps test assertions off
   the real session store's data.
-- **`browser`** (session-scoped): launches one headless Chromium instance
-  via **Playwright's sync API**
-  (`playwright.sync_api.sync_playwright()`), closed at session end. The
-  sync API, not the async one, is a deliberate correction from an earlier
-  draft of this section: this project's existing tests are all `async def`
-  under `pytest-asyncio`'s `asyncio_mode = "auto"`, but Playwright's sync
-  API refuses outright to run from inside a thread with an active asyncio
-  event loop — exactly what every existing async test runs inside. Rather
-  than fight `pytest-asyncio`'s per-test event-loop scoping to make the
-  *async* Playwright API's session-scoped fixtures work, the three new
-  fixtures and every test in the new file are **plain, synchronous** (no
-  `async`/`await`, no `asyncio_mode` involvement at all) — pytest runs sync
-  and async tests side by side in the same session without conflict, so
-  this is purely a per-file style choice, not a project-wide one.
+- **`browser`** (**function-scoped, not session-scoped**): launches one
+  headless Chromium instance via **Playwright's sync API**
+  (`playwright.sync_api.sync_playwright()`), fully closed at the end of
+  each single test. The sync API, not the async one, is a deliberate
+  correction from an earlier draft of this section: this project's
+  existing tests are all `async def` under `pytest-asyncio`'s
+  `asyncio_mode = "auto"`, but Playwright's sync API refuses outright to
+  run from inside a thread with an active asyncio event loop — exactly
+  what every existing async test runs inside. Rather than fight
+  `pytest-asyncio`'s per-test event-loop scoping to make the *async*
+  Playwright API's fixtures work, the three new fixtures and every test in
+  the new file are **plain, synchronous** (no `async`/`await`, no
+  `asyncio_mode` involvement at all).
+  **Second correction (caught during implementation, not planning — a real
+  test-suite failure, reproduced and root-caused before being treated as
+  real):** an earlier version of this fixture was session-scoped, on the
+  reasoning that "pytest runs sync and async tests side by side in the
+  same session without conflict." That's true in general, but Playwright's
+  sync API is a specific exception to it: entering `sync_playwright()`'s
+  context marks an event loop as **"running" on the calling thread for as
+  long as the context stays open** (confirmed directly — even with no
+  browser launched yet, `asyncio.events._get_running_loop()` returns a
+  live loop on that thread the instant the context is entered, and reverts
+  to `None` only once the context fully exits). A session-scoped `browser`
+  fixture holding that context open for the whole suite made every *other*
+  async test that ran afterward in the same worker process fail with
+  `RuntimeError: Runner.run() cannot be called from a running event loop`
+  — reproduced deterministically, not flaky, once two specific test files
+  ran together. Making `browser` function-scoped (opened and fully closed
+  within each single test) confirmed fixed it: the "running loop" marker
+  only exists transiently during that one test and is gone by the time any
+  other test — sync or async — runs. The per-test cost of relaunching
+  Chromium is negligible at this project's current scale (a handful of
+  browser tests).
 - **`page`** (function-scoped): opens a fresh incognito-style browser
   context and page from `browser` against `live_app_url`, yields it, and
   closes the context after the test — so `sessionStorage`/cookies never

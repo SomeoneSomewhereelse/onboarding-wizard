@@ -159,13 +159,25 @@ def live_app_url(db_url):
     thread.join(timeout=5)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def browser():
-    """One headless Chromium instance for the whole test session. Sync
-    Playwright API deliberately, not async -- see
+    """One headless Chromium instance for this single test only --
+    function-scoped, NOT session-scoped. Playwright's sync API keeps an
+    asyncio event loop marked as "running" on the main thread for as long
+    as its sync_playwright() context stays open (confirmed directly: even
+    with no browser launched yet, merely entering that context makes
+    asyncio.events._get_running_loop() return a live loop on the calling
+    thread) -- a session-scoped fixture holding that context open for the
+    whole suite breaks every *other*, unrelated pytest-asyncio async test
+    that runs afterward in the same worker process with "RuntimeError:
+    Runner.run() cannot be called from a running event loop". Opening and
+    fully closing the context within each single test's synchronous call
+    keeps that leak transient and invisible to every other test -- see
     docs/superpowers/specs/2026-09-06-onboarding-browser-tests-design.md
-    section 3: the async API cannot run inside an active asyncio event
-    loop, which every async test in this project runs inside."""
+    section 3's correction for the full story. Sync Playwright API is used
+    at all (rather than the async one) because it cannot run inside an
+    active asyncio event loop, which every *async def* test in this
+    project runs inside under asyncio_mode = "auto"."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:

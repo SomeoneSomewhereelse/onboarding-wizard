@@ -124,13 +124,25 @@ def live_app_url(db_url):
     thread.join(timeout=5)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def browser():
-    """One headless Chromium instance for the whole test session. Sync
-    Playwright API deliberately, not async -- see this file's module-level
-    reasoning in the design doc (docs/superpowers/specs/2026-09-06-onboarding-browser-tests-design.md,
-    section 3): the async API cannot run inside an active asyncio event
-    loop, which every async test in this project runs inside."""
+    """One headless Chromium instance for this single test only --
+    function-scoped, NOT session-scoped. Playwright's sync API keeps an
+    asyncio event loop marked as "running" on the main thread for as long
+    as its sync_playwright() context stays open (confirmed directly: even
+    with no browser launched yet, merely entering that context makes
+    asyncio.events._get_running_loop() return a live loop on the calling
+    thread) -- a session-scoped fixture holding that context open for the
+    whole suite breaks every *other*, unrelated pytest-asyncio async test
+    that runs afterward in the same worker process with "RuntimeError:
+    Runner.run() cannot be called from a running event loop". Opening and
+    fully closing the context within each single test's synchronous call
+    keeps that leak transient and invisible to every other test -- see
+    docs/superpowers/specs/2026-09-06-onboarding-browser-tests-design.md
+    section 3's correction for the full story. Sync Playwright API is used
+    at all (rather than the async one) because it cannot run inside an
+    active asyncio event loop, which every *async def* test in this
+    project runs inside under asyncio_mode = "auto"."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
@@ -202,7 +214,9 @@ In the `[tool.pytest.ini_options]` section's `markers` list, add a new entry alo
 - [ ] **Step 7: Run the full suite to confirm nothing else broke**
 
 Run: `uv run pytest -v`
-Expected: PASS (existing tests unaffected, new smoke test passes, `browser`/`db` markers both present on the new test — confirm with `uv run pytest tests/test_onboarding_page_browser.py -v -m browser --collect-only`, expected to show 1 test collected)
+Expected: PASS (existing tests unaffected, new smoke test passes, `browser`/`db` markers both present on the new test — confirm with `uv run pytest tests/test_onboarding_page_browser.py -v -m browser --collect-only`, expected to show 1 test collected).
+
+**Caught during execution, not planning:** running just `tests/test_onboarding_page.py` together with the new browser test file (not the full suite) deterministically failed an unrelated async test with `RuntimeError: Runner.run() cannot be called from a running event loop`. Root cause, confirmed by direct repro: Playwright's sync API marks an event loop as "running" on the calling thread for as long as `sync_playwright()`'s context stays open — a *session-scoped* `browser` fixture held that open for the whole suite, which broke every other async test that ran afterward in the same worker process. Fixed by making `browser` function-scoped instead (shown above) — verify by running `uv run pytest tests/test_onboarding_page.py tests/test_onboarding_page_browser.py -v` specifically (not just the full suite), three times in a row, to confirm it's not flaky.
 
 - [ ] **Step 8: Add the Chromium install step to CI**
 
@@ -253,11 +267,17 @@ def test_uptime_pinger_blocked_state_reflects_render_service_url_presence(page, 
     """Replaces tests/test_onboarding_page.py's
     test_frame5_blocked_state_reads_the_forward_contract_key, which only
     checked that the relevant function/constant names existed in the page
-    source -- this checks the actual resulting visibility."""
+    source -- this checks the actual resulting visibility.
+
+    frame-uptime-pinger starts locked/closed (a native <details> renders no
+    content for a closed section, so is_visible() on anything inside it is
+    always False regardless of the display style toggle this test cares
+    about) -- unlockFrame() is the real function that opens it, and already
+    calls refreshUptimePingerBlockedState() itself as part of unlocking."""
     page.goto(live_app_url)
 
     page.evaluate("sessionStorage.removeItem('onboarding.renderServiceUrl')")
-    page.evaluate("refreshUptimePingerBlockedState()")
+    page.evaluate("unlockFrame('uptime-pinger')")
     assert page.is_visible("#uptime-pinger-blocked-section")
     assert not page.is_visible("#uptime-pinger-form-section")
 
@@ -272,7 +292,13 @@ def test_uptime_pinger_blocked_state_reflects_render_service_url_presence(page, 
 - [ ] **Step 2: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_onboarding_page_browser.py -v -k uptime_pinger_blocked`
-Expected: PASS (the underlying `refreshUptimePingerBlockedState()` behavior already exists in `static/index.html` — this is a new *test*, not a new feature)
+Expected: PASS. **Caught during execution:** an earlier draft called
+`refreshUptimePingerBlockedState()` directly without unlocking the frame
+first, and failed — `frame-uptime-pinger` starts locked/closed, and a
+closed native `<details>` renders no content at all, so `is_visible()`
+inside it is always `False` regardless of the `display` style this test
+actually cares about. Calling the real `unlockFrame('uptime-pinger')`
+first (shown above) fixes this and is more faithful to real usage anyway.
 
 - [ ] **Step 3: Delete the substring test it replaces**
 
