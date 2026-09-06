@@ -12,9 +12,8 @@ wrapping command's `set -o pipefail` (bash) / exit-code capture
 (PowerShell), this makes the whole wrapped command surface as a failure
 rather than ever emitting unredacted content.
 
-See docs/superpowers/specs/2026-09-06-env-hook-hardening-design.md (in
-the pr-review-bot project, where this design originated) for the full
-design this implements.
+See docs/superpowers/specs/2026-09-06-env-hook-hardening-design.md for the
+full design this implements.
 """
 from __future__ import annotations
 

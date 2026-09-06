@@ -9,9 +9,8 @@ Two independent mechanisms:
 2. Every Bash/PowerShell command is rewritten (via `updatedInput`) to pipe
    its real combined output through `redact_output.py` before the result
    reaches Claude -- see that script's own docstring, and
-   docs/superpowers/specs/2026-09-06-env-hook-hardening-design.md (in the
-   pr-review-bot project, where this design originated) for why this
-   replaced the previous text-scanning approach entirely (neither
+   docs/superpowers/specs/2026-09-06-env-hook-hardening-design.md for why
+   this replaced the previous text-scanning approach entirely (neither
    complete nor precise for an open-ended shell command).
 
 Mutation prevention (rm/mv/chmod/... targeting `.env`) is NOT this hook's
