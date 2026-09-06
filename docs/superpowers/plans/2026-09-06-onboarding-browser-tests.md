@@ -352,7 +352,18 @@ def test_restore_from_session_resumes_polling_for_a_supabase_project_without_a_c
     which only checked that three unrelated strings each appeared
     somewhere in the page source, not that they were wired together in
     the same code branch -- this drives the real restore-from-session
-    flow and checks the actual resulting UI."""
+    flow and checks the actual resulting UI.
+
+    frame-supabase starts locked/closed. showSupabaseProvisioning() sets
+    its <details> `.open = true` directly (unlike unlockFrame(), it never
+    touches `dataset.locked`), and guardLockedFrames()'s toggle listener
+    immediately closes any frame whose dataset.locked is still "true" --
+    exactly what real production code never hits, since this restore path
+    only ever fires for a frame a visitor already unlocked earlier in the
+    same flow. Pre-unlocking via an init script (registered, and so firing,
+    before the page's own DOMContentLoaded listener that calls
+    restoreFromSession()) reproduces that real precondition instead of
+    fighting the guard."""
     session_body = {
         "frames": {
             "supabase": {
@@ -379,6 +390,11 @@ def test_restore_from_session_resumes_polling_for_a_supabase_project_without_a_c
             body=json.dumps({"valid": True, "status": "COMING_UP"}),
         )
 
+    page.add_init_script(
+        "document.addEventListener('DOMContentLoaded', () => {"
+        "  document.getElementById('frame-supabase').dataset.locked = 'false';"
+        "});"
+    )
     page.route(f"{live_app_url}/api/session", handle_session)
     page.route(f"{live_app_url}/api/supabase/project-status", handle_project_status)
 
@@ -392,7 +408,16 @@ def test_restore_from_session_resumes_polling_for_a_supabase_project_without_a_c
 - [ ] **Step 2: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_onboarding_page_browser.py -v -k restore_from_session_resumes_polling`
-Expected: PASS
+Expected: PASS. **Caught during execution:** an earlier draft omitted the
+`add_init_script` pre-unlock and failed with `Timeout ... waiting for
+locator("#supabase-provisioning-section") to be visible` — diagnosed via
+`page.eval_on_selector` showing the section's own `display` was already
+`"block"` but its ancestor `<details id="frame-supabase">`'s `.open` was
+`False`: `showSupabaseProvisioning()` sets `.open = true` directly without
+touching `dataset.locked`, so `guardLockedFrames()`'s toggle listener
+immediately closed it again (same underlying mechanism as Task 2's
+`<details>` correction, different call site). The `add_init_script` shown
+above fixes it.
 
 - [ ] **Step 3: Delete the substring test it replaces**
 
