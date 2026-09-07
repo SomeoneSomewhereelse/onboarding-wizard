@@ -3392,18 +3392,35 @@
         };
       }
 
+      // `animating` is advisory only (used by nothing now, kept for any
+      // future debugging/instrumentation) -- it must never gate whether an
+      // animation is allowed to start. It used to: a growFrameToFit() call
+      // followed immediately by completeFrame()'s closeFrameAnimated()
+      // (the exact sequence every successful re-validation after a fixed
+      // error takes) would set `animating = true` for the grow and then
+      // have the close silently no-op against that flag with no onDone to
+      // retry later -- the frame would never collapse. playHinge() already
+      // cancels whatever animation is currently running before starting a
+      // new one, so both functions below always measure the box's actual
+      // current rendered state (getBoundingClientRect, which reflects
+      // reality even mid-animation) and proceed unconditionally; letting a
+      // grow get interrupted by a close (or vice versa) and smoothly
+      // redirected is correct, silently dropping the interrupting request
+      // is not.
       let animating = false;
 
       function animatedClose(onDone) {
-        if (!el.open || animating) {
-          if (onDone) onDone(); // already closed (or mid-toggle) -- nothing to animate
+        if (!el.open) {
+          if (onDone) onDone(); // already closed -- nothing to animate
           return;
         }
-        // Closing: measure the current height while still open, then
-        // animate height/padding/border and transform/opacity down
+        // Closing: measure the box's actual current height (not
+        // scrollHeight -- this must reflect wherever it visually is right
+        // now, including mid-grow, not its full natural content size),
+        // then animate height/padding/border and transform/opacity down
         // together, and only remove `open` once that finishes.
         animating = true;
-        const currentHeight = body.scrollHeight;
+        const currentHeight = body.getBoundingClientRect().height;
         body.style.overflow = "hidden";
         playHinge([...hingeFrames(currentHeight)].reverse(), () => {
           el.open = false;
@@ -3426,7 +3443,7 @@
       // after it, or there's nothing left to animate from (confirmed live:
       // calling this after the mutation just snapped, no visible tween).
       function growToFit(mutateFn) {
-        if (!el.open || animating) { mutateFn(); return; }
+        if (!el.open) { mutateFn(); return; }
         const oldHeight = body.getBoundingClientRect().height;
         body.style.overflow = "hidden";
         body.style.height = oldHeight + "px";
@@ -3455,7 +3472,7 @@
 
       summary.addEventListener("click", (event) => {
         if (el.dataset.locked === "true") return; // guardLockedFrames handles this
-        if (el.open && !animating) {
+        if (el.open) {
           event.preventDefault();
           animatedClose();
         }
