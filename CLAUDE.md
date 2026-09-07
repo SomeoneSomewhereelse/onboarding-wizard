@@ -663,17 +663,43 @@ optional:**
   `uptime-pinger` after an `llm-provider` change — that read none of the
   changed frame's data. Because `render-deploy` is frequently *not* the
   next positional frame after the one just resubmitted anymore,
-  `completeFrame()` also gained `maybeUnlockRenderDeployAfterRedo()`: once
-  `render-deploy` has completed at least once (`renderDeployCompletedOnce`
-  — never true during the wizard's first pass, so first-time visitors still
-  must reach `render-deploy` via `uptime-pinger` as before), any frame
-  whose dependents include `render-deploy` re-checks whether every real
-  prerequisite (`RENDER_DEPLOY_PREREQS` — everything `bulk_push_render_env_
-  vars` actually reads; deliberately excludes `uptime-pinger`) is done, and
-  unlocks it directly if so. `completeFrame()`'s own `unlockFrame(next)`
-  call is now also guarded on `next` actually being `"locked"` — otherwise
+  `completeFrame()` also gained `maybeUnlockDependentsAfterRedo()` (renamed
+  and generalized 2026-09-07 from an earlier `render-deploy`-only version —
+  see the Parked/fixed-bug note below for why): after any frame completes,
+  it walks that frame's *real* dependents (`FRAME_DEPENDENTS[completedId]`)
+  directly and, for each one still locked, checks `prereqsFor(depId)` (the
+  reverse of `FRAME_DEPENDENTS` — every frame that must be done before
+  `depId` can unlock) and unlocks it if every real prerequisite is done,
+  regardless of what sits positionally in between. `render-deploy` keeps
+  one extra gate on top of the general rule: `renderDeployReachedOnce` —
+  set the first time it's ever unlocked, via the plain first-pass chain or
+  `restoreFromSession()` resuming an already-deployed session — must be
+  true before it can be unlocked this way, since `uptime-pinger` sits
+  before it on the page but isn't one of its real prerequisites, and a
+  first-time visitor must still be made to fill in the uptime monitor
+  before ever reaching "Deploy". `completeFrame()`'s own `unlockFrame(next)`
+  call is also guarded on `next` actually being `"locked"` — otherwise
   a redo's positional "next frame" (which may be an untouched, already-
   `"done"` frame) would get wrongly reopened and reset to "Not started".
+
+  **A real bug in the original, `render-deploy`-only version of this
+  mechanism (found and fixed 2026-09-07):** the old gate was
+  `renderDeployCompletedOnce`, set only on a *successful* deploy — but a
+  visitor who reached `render-deploy` and had the deploy attempt *fail*
+  (never completing it), then went back and redid an earlier frame (e.g.
+  recreating a manually-deleted Render service via `render-service`'s own
+  "Change"), would find every one of that frame's real dependents relocked
+  and *stuck* — `completeFrame()`'s positional chain only ever checks the
+  single immediate next frame in `FRAME_ORDER`, and if that one happens to
+  already be `"done"` (not locked, e.g. `dashboard-auth` sitting right
+  after `render-service`), the chain silently stops there without ever
+  reaching the real, still-locked dependent further down (`github-app`).
+  The only way to make progress was redoing the unrelated, already-correct
+  intervening frame just to trip the chain past it. Generalizing the
+  mechanism to check every real dependent directly (not just
+  `render-deploy`'s) and renaming the gate to track *reaching* the frame
+  rather than *completing* it (a failed deploy still reaches the frame)
+  fixes this for every frame, not just a hand-picked one.
   `lockFrame("render-deploy")` additionally clears the `deployed`/
   `pending_deploy_id` flags from `render-service`'s own storage blob (the
   only place they live — "render-deploy" has no `STORAGE_KEYS` entry of its

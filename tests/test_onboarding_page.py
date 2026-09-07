@@ -166,18 +166,43 @@ async def test_changing_a_frame_relocks_only_its_real_dependents():
 
 
 async def test_a_redo_of_a_leaf_frame_can_unlock_render_deploy_without_uptime_pinger():
-    """The concrete scenario from the request this refactor addresses: a
-    visitor who only changes the LLM provider + API key must be able to
-    redeploy from the last frame without also redoing the uptime monitor."""
+    """The concrete scenario that motivated this mechanism: a visitor who
+    only changes the LLM provider + API key must be able to redeploy from
+    the last frame without also redoing the uptime monitor."""
     client = await _client()
     body = (await client.get("/")).text
-    assert "function maybeUnlockRenderDeployAfterRedo" in body
-    assert '"render-key", "render-service", "dashboard-auth", "github-app", "supabase",' in body
-    assert '"llm-provider",' in body
-    assert "let renderDeployCompletedOnce = false;" in body
-    assert "renderDeployCompletedOnce = true;" in body
-    # Called from completeFrame for every frame except render-deploy itself.
-    assert 'if (id !== "render-deploy") maybeUnlockRenderDeployAfterRedo(id);' in body
+    assert "function maybeUnlockDependentsAfterRedo" in body
+    assert "function prereqsFor(frameId)" in body
+    assert "let renderDeployReachedOnce = false;" in body
+    assert 'if (id === "render-deploy") renderDeployReachedOnce = true;' in body
+    # Called from completeFrame for every frame -- no more render-deploy
+    # special case, see the next test for why.
+    assert "maybeUnlockDependentsAfterRedo(id);" in body
+
+
+async def test_redoing_render_service_unlocks_github_app_even_when_dashboard_auth_is_already_done():
+    """Regression test for a real bug: the previous render-deploy-only
+    version of maybeUnlockDependentsAfterRedo (then named
+    maybeUnlockRenderDeployAfterRedo) left github-app permanently locked
+    after redoing render-service, because completeFrame's positional
+    "unlock the next frame" chain only ever checks the single immediate
+    next frame (dashboard-auth) -- which was already "done" and not
+    locked, so the chain stopped there and never reached github-app, a
+    real dependent sitting further down. The only workaround was redoing
+    the unrelated, already-correct dashboard-auth frame just to trip the
+    chain past it. The general mechanism must check every real dependent
+    of the completed frame directly, not rely on what sits positionally
+    in between."""
+    client = await _client()
+    body = (await client.get("/")).text
+    # maybeUnlockDependentsAfterRedo must walk FRAME_DEPENDENTS[completedId]
+    # directly (github-app is a real dependent of render-service) rather
+    # than only ever checking nextFrame(completedId) (dashboard-auth).
+    fn_start = body.index("function maybeUnlockDependentsAfterRedo")
+    fn_body = body[fn_start : body.index("\n  }", fn_start)]
+    assert "FRAME_DEPENDENTS[completedId]" in fn_body
+    assert "dataset.locked" in fn_body
+    assert "prereqsFor(depId)" in fn_body
 
 
 async def test_submitted_key_is_cleared_from_the_input_after_success():
