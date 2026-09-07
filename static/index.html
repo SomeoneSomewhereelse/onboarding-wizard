@@ -5,47 +5,178 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Set up your own reviewer</title>
 <style>
+  /* Self-hosted display face -- same StaticFiles-mount pattern as the
+     sibling review-engine project's dashboard font (see main.py). Two
+     static weights only (400/600), not the full variable font: this is a
+     certificate-style display face for h1/frame-title/stamp-label, never
+     body or i18n text (Fraunces has no Hebrew coverage; --font-body
+     carries Hebrew and all body copy). */
+  @font-face {
+    font-family: "Fraunces";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url(/static/fonts/fraunces-v38-latin-regular.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: "Fraunces";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url(/static/fonts/fraunces-v38-latin-600.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: "Fraunces";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url(/static/fonts/fraunces-v38-latin-700.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
   :root {
-    --bg: #f5f6f8;
-    --surface: #ffffff;
-    --surface-2: #eef0f3;
-    --text: #1f2933;
-    --text-muted: #5c6773;
-    --border: #dde2e7;
-    --accent: #3a6ea5;
-    --ok: #2f7d4f;
-    --fail: #b3454b;
+    /* The Stamped Passport: navy cover, cream laid paper, red/blue ink
+       stamps, gold foil used sparingly. --accent stays the interactive-
+       control color (link/button/focus); --gold is the ceremonial color
+       reserved for stamp/certificate ornament only. */
+    --bg: #dfe1d9;
+    --surface: #efe6cf;
+    --surface-2: #e6dcbf;
+    --text: #241d12;
+    --text-muted: #6b5f47;
+    --border: #c9b98f;
+    --accent: #2a4d8a;
+    --ok: #1f6b3a;
+    --fail: #8a1f2b;
+    --cover: #1f2a44;
+    --cover-2: #16203a;
+    --gold: #9c7a1f;
+    --stamp-red: #8a1f2b;
+    --stamp-blue: #2a4d8a;
+    /* Primary-button fill: Control Blue in light mode (matches --accent);
+       dark mode overrides this to a brighter shade of the card's own warm
+       tone instead of carrying the cool blue over, since a bright sky-blue
+       button against the warm brown card/paper reads as out of place. */
+    --btn-primary-bg: var(--accent);
+    --font-display: "Fraunces", Georgia, "Iowan Old Style", "Palatino Linotype",
+      "Book Antiqua", "Noto Serif", "Liberation Serif", "DejaVu Serif", serif;
+    --font-body: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #12161b;
-      --surface: #1a1f26;
-      --surface-2: #22282f;
-      --text: #e6e9ec;
-      --text-muted: #9aa5b1;
-      --border: #2b323a;
+      /* Reading the passport by lamplight: a deep navy ground, the paper
+         itself warms rather than inverting to white, gold stays restrained. */
+      --bg: #10131c;
+      --surface: #2a2418;
+      --surface-2: #221d13;
+      --text: #ecdfc0;
+      --text-muted: #a89968;
+      --border: #4a4128;
       --accent: #7ba7d9;
       --ok: #5fbf87;
       --fail: #e08086;
+      --cover: #0d1220;
+      --cover-2: #070a13;
+      --gold: #c9a227;
+      /* Deliberately deeper/less saturated than --accent's own dark-mode
+         blue -- the original values here matched --accent almost exactly
+         and, combined with the ring's screen blend mode, read as neon
+         against the near-black cover panel rather than lamplit ink. */
+      --stamp-red: #b5495c;
+      --stamp-blue: #4d7ab3;
+      --btn-primary-bg: #7d6438;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #12161b;
-    --surface: #1a1f26;
-    --surface-2: #22282f;
-    --text: #e6e9ec;
-    --text-muted: #9aa5b1;
-    --border: #2b323a;
+    --bg: #10131c;
+    --surface: #2a2418;
+    --surface-2: #221d13;
+    --text: #ecdfc0;
+    --text-muted: #a89968;
+    --border: #4a4128;
     --accent: #7ba7d9;
     --ok: #5fbf87;
     --fail: #e08086;
+    --cover: #0d1220;
+    --cover-2: #070a13;
+    --gold: #c9a227;
+    --stamp-red: #b5495c;
+    --stamp-blue: #4d7ab3;
+    --btn-primary-bg: #7d6438;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: var(--font-body);
+    /* Native radio/checkbox controls otherwise render in the browser's
+       generic default blue, which doesn't belong to this palette at all --
+       accent-color recolors them (check mark, radio dot, and their focus
+       ring) to the world's own Control Blue, everywhere: theme/language
+       popups, the dashboard-auth acknowledgement checkbox, the LLM
+       provider radio group. */
+    accent-color: var(--accent);
+    /* The navy cover edges are the passport's binding, always at the outer
+       margins of the viewport regardless of scroll position. Pure decoration
+       (pointer-events: none): no control ever lives under them. */
+    position: relative;
+  }
+  /* Cloth-bound cover edge: a cross-hatch weave cue (two diagonal repeating
+     gradients, not just horizontal thread lines) plus a stitched inset
+     border a few px from the true edge, in gold thread -- reads as bound
+     cloth rather than a flat color bar. */
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: clamp(10px, 2.5vw, 22px);
+    background:
+      repeating-linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.09) 0 1.5px,
+        transparent 1.5px 6px
+      ),
+      repeating-linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.07) 0 1.5px,
+        transparent 1.5px 6px
+      ),
+      linear-gradient(to right, var(--cover-2), var(--cover));
+    box-shadow: inset 0 0 0 3px var(--cover-2);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before {
+    left: 0;
+    border-inline-end: 1px dashed color-mix(in srgb, var(--gold) 55%, var(--cover));
+  }
+  body::after {
+    right: 0;
+    border-inline-start: 1px dashed color-mix(in srgb, var(--gold) 55%, var(--cover));
+    background:
+      repeating-linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.09) 0 1.5px,
+        transparent 1.5px 6px
+      ),
+      repeating-linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.07) 0 1.5px,
+        transparent 1.5px 6px
+      ),
+      linear-gradient(to left, var(--cover-2), var(--cover));
+  }
+  h1, .frame-title, .stamp-slot .stamp-label {
+    font-family: var(--font-display);
   }
   header.topbar {
     display: flex;
@@ -53,7 +184,10 @@
     justify-content: flex-end;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
+    padding-inline: clamp(1rem, 3vw, 2.5rem);
     border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
   }
   button.control {
     display: inline-flex;
@@ -91,14 +225,221 @@
     cursor: pointer;
     font-size: 0.95rem;
   }
-  main { max-width: 640px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-  h1 { font-size: 1.5rem; }
+  /* passport-spread lays the stamp grid ("left page") beside the working
+     accordion ("right page") like an open booklet. In RTL the spread
+     mirrors physically -- the stamp grid moves to the reading-first side --
+     via row-reverse, not just text alignment. */
+  .passport-spread {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    max-width: 1040px;
+    margin: 0 auto;
+    padding-inline: clamp(0.75rem, 3vw, 2.5rem);
+    position: relative;
+    z-index: 1;
+    /* Page-load entrance: a restrained "morph" cross-fade (scale + fade),
+       not a more literal cover-open sweep or staggered cascade. A plain
+       CSS animation is fine here (unlike the frame-hinge interaction) --
+       it's a one-time entrance with no toggle state to manage. */
+    animation: page-morph-in 0.5s ease-out;
+  }
+  @keyframes page-morph-in {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .passport-spread { animation: none; }
+  }
+  /* No explicit row-reverse needed here: flex-direction: row already
+     follows the inline direction, so under dir="rtl" the DOM's first child
+     (the stamp grid) renders on the reading-first (right) side and the
+     last child (main) on the left -- a real physical mirror, automatically,
+     from the same source order as LTR. An explicit row-reverse would
+     un-mirror it back to LTR's physical layout, which is the bug this
+     comment guards against re-introducing. */
+  .passport-gutter {
+    align-self: stretch;
+    width: 3px;
+    margin-top: 2.5rem;
+    background: linear-gradient(to bottom, transparent, var(--gold) 15%, var(--gold) 85%, transparent);
+    opacity: 0.6;
+    flex: none;
+    display: none;
+  }
+  @media (min-width: 860px) { .passport-gutter { display: block; } }
+  #passport-stamp-grid {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 300px;
+    padding: 2rem 1.25rem;
+    position: sticky;
+    top: 0;
+  }
+  @media (min-width: 860px) { #passport-stamp-grid { width: 300px; } }
+  .stamp-grid-title {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin: 0 0 1rem;
+    text-align: center;
+  }
+  .stamp-grid-cells {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.9rem;
+  }
+  .stamp-slot {
+    aspect-ratio: 1;
+    border: 1.5px dashed var(--border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .stamp-slot svg {
+    width: 62%;
+    height: 62%;
+    overflow: visible;
+    transform: rotate(var(--stamp-tilt, -8deg)) scale(var(--stamp-scale, 0.7));
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /* An earned stamp reads as imperfect hand-inked ink, not a clean recolored
+     vector icon: the ring itself is drawn as a hand-perturbed closed path
+     (baked into the path data, not a CSS shape), with a blurred "bleed" copy
+     underneath, a thinner inner ring, and a couple of small ink spatters --
+     the layered-path technique real digital rubber-stamp effects use, rather
+     than a filter standing in for the material. The glyph inside stays
+     legible (fine crisp strokes) so the frame's meaning still reads; the
+     ring is where the ink texture lives. Unearned slots show only the glyph,
+     flat and muted -- the ring group is invisible until stamped, so the ink
+     texture itself is part of what's "earned". */
+  .stamp-glyph {
+    stroke: var(--text-muted);
+    opacity: 0.22;
+    transition: stroke 0.25s ease, opacity 0.25s ease;
+  }
+  .stamp-ring {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .ring-bleed {
+    stroke: var(--stamp-color, var(--stamp-red));
+    stroke-width: 3.2;
+    opacity: 0.3;
+    filter: blur(1.1px);
+  }
+  .ring-outer {
+    stroke: var(--stamp-color, var(--stamp-red));
+    stroke-width: 1.7;
+    opacity: 0.92;
+  }
+  .ring-inner {
+    stroke: var(--stamp-color, var(--stamp-red));
+    stroke-width: 1;
+    opacity: 0.6;
+  }
+  .ring-spatter {
+    fill: var(--stamp-color, var(--stamp-red));
+    opacity: 0.55;
+  }
+  /* No blend-mode trick in dark mode (removed 2026-09) -- `screen` always
+     lightens, which combined with the old brighter stamp-red/blue values
+     read as neon glow against the near-black cover rather than lamplit
+     ink. Toning down the colors alone (see the dark theme blocks above)
+     plus normal blending reads as ink, not light. */
+  .stamp-slot.stamped {
+    border-style: solid;
+    border-color: var(--stamp-color, var(--stamp-red));
+    background: color-mix(in srgb, var(--stamp-color, var(--stamp-red)) 8%, var(--surface-2));
+  }
+  .stamp-slot.stamped svg { transform: rotate(var(--stamp-tilt, -8deg)) scale(1); }
+  .stamp-slot.stamped .stamp-glyph { stroke: var(--stamp-color, var(--stamp-red)); opacity: 0.95; }
+  .stamp-slot.stamped .stamp-ring { opacity: 1; }
+  .stamp-slot.stamped.just-landed svg { animation: stamp-land 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes stamp-land {
+    0% { opacity: 0; transform: rotate(var(--stamp-tilt, -8deg)) scale(2.2); }
+    60% { opacity: 1; transform: rotate(var(--stamp-tilt, -8deg)) scale(0.9); }
+    100% { opacity: 0.9; transform: rotate(var(--stamp-tilt, -8deg)) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stamp-slot svg, .stamp-slot.stamped.just-landed svg { animation: none !important; transition: none !important; }
+  }
+  main {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 2rem 1rem 4rem;
+    background: var(--surface);
+    /* Laid paper: fine, low-contrast vertical "chain lines" (the paper's own
+       fiber/laid texture) sit under the wider-spaced horizontal ruled
+       baseline lines -- two different frequencies so neither reads as the
+       other. Now that each frame is its own opaque, lifted card, this
+       texture only shows in the margins around/between cards (headline,
+       intro copy, card gaps) rather than bleeding through form content --
+       kept deliberately faint there so it reads as ambient paper grain,
+       not a competing pattern. */
+    background-image:
+      repeating-linear-gradient(to bottom, transparent 0 2.1rem, color-mix(in srgb, var(--border) 45%, transparent) 2.1rem calc(2.1rem + 1px)),
+      repeating-linear-gradient(to right, transparent 0 5px, color-mix(in srgb, var(--border) 30%, transparent) 5px 6px);
+    background-position: 0 5.5rem, 0 0;
+    border-inline-start: 1px solid var(--border);
+    position: relative;
+  }
+  @media (max-width: 859px) { main { border-inline-start: none; } }
+  /* Perforated corner tab: a short strip of punched holes plus a dashed
+     tear-line, at the top inline-end corner of the active page -- the
+     "current page" marker the direction contract's FIRST VIEWPORT names. */
+  main::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    inset-inline-end: clamp(0.75rem, 3vw, 1.5rem);
+    width: 14px;
+    height: 40px;
+    background:
+      radial-gradient(circle 1.6px at 7px 6px, var(--bg) 98%, transparent 100%),
+      radial-gradient(circle 1.6px at 7px 16px, var(--bg) 98%, transparent 100%),
+      radial-gradient(circle 1.6px at 7px 26px, var(--bg) 98%, transparent 100%),
+      radial-gradient(circle 1.6px at 7px 36px, var(--bg) 98%, transparent 100%),
+      var(--surface);
+    border-inline-start: 1px dashed var(--border);
+    pointer-events: none;
+  }
+  h1 {
+    font-size: 1.7rem;
+    margin-top: 0;
+    margin-bottom: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--gold);
+    display: inline-block;
+  }
   p.lede { color: var(--text-muted); }
+  /* Transparent, not var(--surface): a card that painted its own opaque
+     background would hide main's ruled-paper lines under every card's
+     content, which is exactly where the direction contract wants them
+     visible ("the current frame's heading, copy, and form fields on
+     ruled baseline lines"). Letting main's background paint through is
+     what makes the whole page read as one sheet of ruled paper rather
+     than a stack of opaque cards sitting on top of it. */
+  /* Opaque and lifted, not flush with the page: each frame reads as its
+     own paper card floating above the passport-page texture, rather than
+     a seam cut into one continuous ruled sheet (the ruled/laid-paper
+     texture now only shows in the margins between cards). */
   details.frame {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.09), 0 1px 0 rgba(0, 0, 0, 0.04);
   }
   details.frame > summary {
     list-style: none;
@@ -142,13 +483,26 @@
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.8rem;
+    border-radius: 3px;
+    padding: 0.4rem 0.9rem;
     min-height: 2.5rem;
     cursor: pointer;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
+  .frame-change:hover { border-color: var(--gold); }
   details.frame[data-status="done"] .frame-change { display: inline-block; }
   .frame-body { padding: 0 1.1rem 1.1rem; border-top: 1px solid var(--border); }
+  /* Signature interaction: a frame's detail panel hinges open like a
+     passport-book cover, rather than just appearing, and hinges shut in
+     reverse on close -- native <details> can't animate its own collapse,
+     so both directions are driven from JS via the Web Animations API
+     (see wireFrameHingeAnimations()), not CSS. transform-origin stays
+     here since the animated transform still needs it. */
+  details.frame > .frame-body { transform-origin: top center; }
   .frame-body input[type="password"], .frame-body input[type="text"], .frame-body select {
     width: 100%;
     padding: 0.5rem;
@@ -159,14 +513,86 @@
     color: var(--text);
     min-height: 2.5rem;
   }
-  .frame-body button {
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 0.5rem 1rem;
+  /* A native <input type="file"> can't be restyled directly, and left bare
+     it sits inline with whatever text precedes it -- exactly the "cramped
+     between text, doesn't match the design" look. The input itself stays
+     in the DOM and keeps native keyboard/focus behavior (a real click
+     target, not display:none), just visually hidden via clipping rather
+     than opacity/visibility so it remains tabbable; its associated
+     <label for> is the visible control, styled like the Secondary button,
+     with the chosen filename as its own quiet status text beside it. */
+  .file-field {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 0.5rem 0;
+  }
+  .file-field-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .file-field-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.4rem 0.9rem;
     min-height: 2.5rem;
     cursor: pointer;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .file-field-button:hover { border-color: var(--gold); }
+  .file-field-input:focus-visible + .file-field-button {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .file-field-name { color: var(--text-muted); font-size: 0.85rem; }
+  /* Primary action buttons carry the same ink-block character as the
+     stamp/control-blue world, not a flat corporate rounded-rect: a subtle
+     pressed-ink depth (inset highlight + soft outer shadow), a tighter
+     radius, and a tracked small-caps label matching the stamp-grid's own
+     certificate lettering. */
+  .frame-body button:not(.password-toggle):not(.copy-btn) {
+    background: var(--btn-primary-bg);
+    color: #fff;
+    border: 1px solid color-mix(in srgb, var(--btn-primary-bg) 60%, black);
+    border-radius: 3px;
+    padding: 0.5rem 1.1rem;
+    min-height: 2.5rem;
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.22);
+    transition: box-shadow 0.15s ease, transform 0.05s ease;
+  }
+  .frame-body button:not(.password-toggle):not(.copy-btn):hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.22),
+      0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent);
+  }
+  .frame-body button:not(.password-toggle):not(.copy-btn):active { transform: translateY(1px); }
+  .frame-body button:not(.password-toggle):not(.copy-btn):disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
   }
   /* Password input with the reveal control sitting inside it. The container
      owns the vertical spacing and the input's own margin is zeroed, so the
@@ -246,10 +672,33 @@
   }
   .checkbox-row input[type="checkbox"] { margin: 0.15rem 0 0; flex: none; }
   .frame-error { color: var(--fail); min-height: 1.2em; }
+  @media (max-width: 859px) {
+    /* Below the two-page breakpoint the spread collapses to a single
+       column: stamp grid first (a compact overview of what's been
+       cleared), the working accordion below it -- the passport metaphor
+       survives the collapse instead of just vanishing into a generic
+       mobile stack. */
+    .passport-spread { flex-direction: column !important; }
+    #passport-stamp-grid {
+      position: static;
+      width: 100%;
+      max-width: none;
+      padding: 1.25rem 1rem 0.5rem;
+      /* The vertical gutter is desktop-only (.passport-gutter is display:
+         none below 860px); stacked layout gets its own horizontal gold
+         foil rule so the two "pages" still read as sitting either side of
+         one binding, not just two stacked blocks. */
+      border-bottom: 3px solid transparent;
+      border-image: linear-gradient(to right, transparent, var(--gold) 15%, var(--gold) 85%, transparent) 1;
+      margin-bottom: 0.5rem;
+    }
+    .stamp-grid-cells { grid-template-columns: repeat(4, 1fr); max-width: 420px; margin: 0 auto; }
+  }
   @media (max-width: 480px) {
     header.topbar { justify-content: center; }
     details.frame > summary { padding: 0.75rem 0.9rem; }
     .frame-change { width: 100%; text-align: center; }
+    .stamp-grid-cells { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
 </head>
@@ -287,6 +736,101 @@
     </div>
   </div>
 
+  <div class="passport-spread">
+    <aside id="passport-stamp-grid" aria-label="Progress">
+      <p class="stamp-grid-title" data-i18n="stamp_grid_title"></p>
+      <div class="stamp-grid-cells">
+        <div class="stamp-slot" data-frame="render-key" style="--stamp-tilt: -7deg; --stamp-color: var(--stamp-blue); --stamp-scale: 0.66;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="24" r="9"/><path d="M25 24h19M36 24v7M42 24v5"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 40.2 24.0 Q 40.2 24.0 39.6 28.8 Q 39.0 33.6 35.5 37.6 Q 32.0 41.6 26.7 42.2 Q 21.3 42.8 16.4 40.7 Q 11.4 38.5 9.2 33.7 Q 7.1 29.0 6.2 23.7 Q 5.3 18.5 8.7 14.4 Q 12.1 10.3 16.9 9.3 Q 21.7 8.3 26.6 8.1 Q 31.4 7.8 34.3 11.7 Q 37.2 15.5 38.7 19.8 Z"/>
+              <path class="ring-outer" d="M 40.2 24.0 Q 40.2 24.0 39.6 28.8 Q 39.0 33.6 35.5 37.6 Q 32.0 41.6 26.7 42.2 Q 21.3 42.8 16.4 40.7 Q 11.4 38.5 9.2 33.7 Q 7.1 29.0 6.2 23.7 Q 5.3 18.5 8.7 14.4 Q 12.1 10.3 16.9 9.3 Q 21.7 8.3 26.6 8.1 Q 31.4 7.8 34.3 11.7 Q 37.2 15.5 38.7 19.8 Z"/>
+              <path class="ring-inner" d="M 39.6 24.0 Q 39.6 24.0 37.0 28.4 Q 34.4 32.8 30.7 37.0 Q 27.1 41.3 21.2 40.2 Q 15.3 39.1 12.6 34.1 Q 9.9 29.1 9.4 23.8 Q 8.9 18.5 13.0 15.3 Q 17.1 12.1 21.8 11.3 Q 26.4 10.4 30.6 12.7 Q 34.8 14.9 37.2 19.5 Z"/>
+              <circle class="ring-spatter" cx="37.5" cy="42.2" r="0.94"/><circle class="ring-spatter" cx="18.7" cy="2.0" r="1.11"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="render-service" style="--stamp-tilt: 6deg; --stamp-color: var(--stamp-red); --stamp-scale: 0.73;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="10" width="32" height="10" rx="2"/><rect x="8" y="26" width="32" height="10" rx="2"/><circle cx="14" cy="15" r="1.5" fill="currentColor" stroke="none"/><circle cx="14" cy="31" r="1.5" fill="currentColor" stroke="none"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 40.7 24.0 Q 40.7 24.0 39.2 28.4 Q 37.7 32.8 34.5 36.4 Q 31.3 39.9 26.5 40.0 Q 21.7 40.1 17.1 38.7 Q 12.5 37.2 10.6 32.9 Q 8.6 28.5 7.6 23.7 Q 6.6 18.9 9.3 14.5 Q 12.0 10.1 16.8 8.5 Q 21.5 6.9 26.8 6.6 Q 32.1 6.2 34.6 10.9 Q 37.2 15.5 38.9 19.8 Z"/>
+              <path class="ring-outer" d="M 40.7 24.0 Q 40.7 24.0 39.2 28.4 Q 37.7 32.8 34.5 36.4 Q 31.3 39.9 26.5 40.0 Q 21.7 40.1 17.1 38.7 Q 12.5 37.2 10.6 32.9 Q 8.6 28.5 7.6 23.7 Q 6.6 18.9 9.3 14.5 Q 12.0 10.1 16.8 8.5 Q 21.5 6.9 26.8 6.6 Q 32.1 6.2 34.6 10.9 Q 37.2 15.5 38.9 19.8 Z"/>
+              <path class="ring-inner" d="M 40.3 24.0 Q 40.3 24.0 37.3 28.4 Q 34.4 32.7 30.3 34.8 Q 26.3 36.9 21.5 36.7 Q 16.8 36.5 12.6 33.1 Q 8.4 29.7 9.5 24.4 Q 10.7 19.1 13.0 14.1 Q 15.4 9.1 21.1 8.8 Q 26.7 8.5 31.2 11.3 Q 35.7 14.2 38.0 19.1 Z"/>
+              <circle class="ring-spatter" cx="42.6" cy="14.7" r="1.43"/><circle class="ring-spatter" cx="0.5" cy="18.2" r="1.24"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="dashboard-auth" style="--stamp-tilt: -5deg; --stamp-color: var(--stamp-blue); --stamp-scale: 0.69;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M24 6 10 11v11c0 10 6 17 14 20 8-3 14-10 14-20V11Z"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 41.9 24.0 Q 41.9 24.0 39.9 28.5 Q 37.9 32.9 35.2 37.8 Q 32.5 42.6 26.8 43.2 Q 21.1 43.9 16.3 41.2 Q 11.4 38.5 8.3 34.0 Q 5.1 29.5 7.1 24.6 Q 9.0 19.6 10.2 14.5 Q 11.3 9.4 16.5 8.8 Q 21.7 8.1 26.5 8.1 Q 31.2 8.1 35.2 11.2 Q 39.1 14.3 40.5 19.1 Z"/>
+              <path class="ring-outer" d="M 41.9 24.0 Q 41.9 24.0 39.9 28.5 Q 37.9 32.9 35.2 37.8 Q 32.5 42.6 26.8 43.2 Q 21.1 43.9 16.3 41.2 Q 11.4 38.5 8.3 34.0 Q 5.1 29.5 7.1 24.6 Q 9.0 19.6 10.2 14.5 Q 11.3 9.4 16.5 8.8 Q 21.7 8.1 26.5 8.1 Q 31.2 8.1 35.2 11.2 Q 39.1 14.3 40.5 19.1 Z"/>
+              <path class="ring-inner" d="M 40.1 24.0 Q 40.1 24.0 38.1 29.1 Q 36.1 34.2 31.4 36.8 Q 26.7 39.4 21.6 38.2 Q 16.4 37.1 12.3 33.4 Q 8.2 29.8 9.9 24.6 Q 11.6 19.5 14.3 15.6 Q 17.0 11.8 21.8 10.2 Q 26.7 8.6 30.5 12.0 Q 34.3 15.4 37.2 19.7 Z"/>
+              <circle class="ring-spatter" cx="4.2" cy="13.8" r="1.15"/><circle class="ring-spatter" cx="26.0" cy="2.3" r="0.91"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="github-app" style="--stamp-tilt: 8deg; --stamp-color: var(--stamp-red); --stamp-scale: 0.72;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="24" r="10"/><circle cx="32" cy="24" r="10"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 43.0 24.0 Q 43.0 24.0 41.8 29.3 Q 40.6 34.7 36.5 38.6 Q 32.4 42.4 26.9 42.5 Q 21.3 42.5 17.3 39.5 Q 13.2 36.5 8.8 33.1 Q 4.4 29.7 4.6 24.0 Q 4.7 18.3 8.3 14.2 Q 12.0 10.1 16.7 8.2 Q 21.5 6.4 26.5 6.8 Q 31.6 7.3 35.3 10.8 Q 39.0 14.4 41.0 19.2 Z"/>
+              <path class="ring-outer" d="M 43.0 24.0 Q 43.0 24.0 41.8 29.3 Q 40.6 34.7 36.5 38.6 Q 32.4 42.4 26.9 42.5 Q 21.3 42.5 17.3 39.5 Q 13.2 36.5 8.8 33.1 Q 4.4 29.7 4.6 24.0 Q 4.7 18.3 8.3 14.2 Q 12.0 10.1 16.7 8.2 Q 21.5 6.4 26.5 6.8 Q 31.6 7.3 35.3 10.8 Q 39.0 14.4 41.0 19.2 Z"/>
+              <path class="ring-inner" d="M 41.7 24.0 Q 41.7 24.0 38.4 28.7 Q 35.2 33.4 30.8 35.3 Q 26.3 37.2 20.8 38.2 Q 15.2 39.3 11.7 34.5 Q 8.3 29.7 8.7 24.2 Q 9.1 18.6 12.2 13.8 Q 15.4 9.0 21.1 8.7 Q 26.8 8.4 30.3 12.1 Q 33.8 15.8 37.7 19.9 Z"/>
+              <circle class="ring-spatter" cx="44.3" cy="23.2" r="1.01"/><circle class="ring-spatter" cx="38.2" cy="4.8" r="1.25"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="supabase" style="--stamp-tilt: -6deg; --stamp-color: var(--stamp-blue); --stamp-scale: 0.67;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="24" cy="13" rx="14" ry="6"/><path d="M10 13v22c0 3.3 6.3 6 14 6s14-2.7 14-6V13"/><path d="M10 24c0 3.3 6.3 6 14 6s14-2.7 14-6"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 43.2 24.0 Q 43.2 24.0 41.2 28.9 Q 39.2 33.8 35.2 36.8 Q 31.2 39.8 26.4 40.1 Q 21.6 40.4 17.4 38.4 Q 13.2 36.4 9.1 33.0 Q 5.0 29.6 5.8 24.2 Q 6.7 18.9 9.0 14.2 Q 11.4 9.4 16.4 7.5 Q 21.4 5.6 26.8 5.7 Q 32.3 5.8 36.1 9.8 Q 39.9 13.8 41.5 18.9 Z"/>
+              <path class="ring-outer" d="M 43.2 24.0 Q 43.2 24.0 41.2 28.9 Q 39.2 33.8 35.2 36.8 Q 31.2 39.8 26.4 40.1 Q 21.6 40.4 17.4 38.4 Q 13.2 36.4 9.1 33.0 Q 5.0 29.6 5.8 24.2 Q 6.7 18.9 9.0 14.2 Q 11.4 9.4 16.4 7.5 Q 21.4 5.6 26.8 5.7 Q 32.3 5.8 36.1 9.8 Q 39.9 13.8 41.5 18.9 Z"/>
+              <path class="ring-inner" d="M 37.9 24.0 Q 37.9 24.0 37.0 29.1 Q 36.1 34.2 31.4 36.7 Q 26.7 39.3 22.0 37.4 Q 17.4 35.5 12.8 32.6 Q 8.3 29.7 9.4 24.4 Q 10.5 19.1 13.1 14.4 Q 15.8 9.7 21.1 10.0 Q 26.4 10.2 31.2 12.1 Q 35.9 14.0 36.9 19.0 Z"/>
+              <circle class="ring-spatter" cx="29.6" cy="0.7" r="1.27"/><circle class="ring-spatter" cx="15.7" cy="43.3" r="1.01"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="llm-provider" style="--stamp-tilt: 5deg; --stamp-color: var(--stamp-red); --stamp-scale: 0.71;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M24 6v14M24 28v14M6 24h14M28 24h14M12 12l10 10M26 26l10 10M36 12 26 22M22 26 12 36"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 44.0 24.0 Q 44.0 24.0 42.2 29.3 Q 40.4 34.6 35.6 36.7 Q 30.7 38.8 26.2 39.8 Q 21.6 40.8 16.7 39.4 Q 11.9 38.0 9.4 33.5 Q 6.8 29.0 7.0 24.1 Q 7.2 19.1 10.5 15.7 Q 13.9 12.3 17.6 9.0 Q 21.4 5.8 26.9 5.8 Q 32.3 5.7 36.5 9.5 Q 40.6 13.3 42.3 18.7 Z"/>
+              <path class="ring-outer" d="M 44.0 24.0 Q 44.0 24.0 42.2 29.3 Q 40.4 34.6 35.6 36.7 Q 30.7 38.8 26.2 39.8 Q 21.6 40.8 16.7 39.4 Q 11.9 38.0 9.4 33.5 Q 6.8 29.0 7.0 24.1 Q 7.2 19.1 10.5 15.7 Q 13.9 12.3 17.6 9.0 Q 21.4 5.8 26.9 5.8 Q 32.3 5.7 36.5 9.5 Q 40.6 13.3 42.3 18.7 Z"/>
+              <path class="ring-inner" d="M 38.4 24.0 Q 38.4 24.0 36.8 28.7 Q 35.3 33.5 31.0 36.3 Q 26.7 39.2 21.6 38.1 Q 16.5 36.9 14.1 32.7 Q 11.6 28.5 10.2 23.5 Q 8.8 18.5 12.0 13.6 Q 15.2 8.7 20.8 9.7 Q 26.4 10.6 30.7 12.7 Q 35.0 14.8 36.7 19.4 Z"/>
+              <circle class="ring-spatter" cx="10.9" cy="41.7" r="1.27"/><circle class="ring-spatter" cx="6.6" cy="14.1" r="1.26"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="uptime-pinger" style="--stamp-tilt: -8deg; --stamp-color: var(--stamp-blue); --stamp-scale: 0.68;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 26h8l4-14 8 24 4-14 3 4h9"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 43.3 24.0 Q 43.3 24.0 41.5 29.1 Q 39.8 34.1 35.5 37.0 Q 31.3 40.0 26.5 40.1 Q 21.7 40.3 16.6 39.3 Q 11.6 38.3 8.0 34.0 Q 4.5 29.7 5.8 24.4 Q 7.1 19.0 9.1 14.0 Q 11.1 9.1 16.4 8.8 Q 21.8 8.5 26.7 8.0 Q 31.5 7.5 34.7 11.3 Q 37.9 15.1 40.6 19.5 Z"/>
+              <path class="ring-outer" d="M 43.3 24.0 Q 43.3 24.0 41.5 29.1 Q 39.8 34.1 35.5 37.0 Q 31.3 40.0 26.5 40.1 Q 21.7 40.3 16.6 39.3 Q 11.6 38.3 8.0 34.0 Q 4.5 29.7 5.8 24.4 Q 7.1 19.0 9.1 14.0 Q 11.1 9.1 16.4 8.8 Q 21.8 8.5 26.7 8.0 Q 31.5 7.5 34.7 11.3 Q 37.9 15.1 40.6 19.5 Z"/>
+              <path class="ring-inner" d="M 37.1 24.0 Q 37.1 24.0 37.0 29.5 Q 37.0 34.9 31.9 37.2 Q 26.7 39.5 21.9 37.7 Q 17.1 35.9 12.8 32.8 Q 8.4 29.7 8.8 24.2 Q 9.3 18.6 12.4 14.0 Q 15.6 9.4 21.1 8.9 Q 26.7 8.5 31.6 11.0 Q 36.5 13.5 36.8 18.7 Z"/>
+              <circle class="ring-spatter" cx="7.8" cy="36.3" r="1.27"/><circle class="ring-spatter" cx="38.8" cy="40.3" r="1.07"/>
+            </g>
+          </svg>
+        </div>
+        <div class="stamp-slot" data-frame="render-deploy" style="--stamp-tilt: 7deg; --stamp-color: var(--stamp-red); --stamp-scale: 0.74;">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <g class="stamp-glyph" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M24 4c6 6 9 13 9 20 0 6-3 11-9 16-6-5-9-10-9-16 0-7 3-14 9-20Z"/><circle cx="24" cy="21" r="4"/><path d="M17 34l-6 8M31 34l6 8"/></g>
+            <g class="stamp-ring" fill="none" stroke-linecap="round">
+              <path class="ring-bleed" d="M 43.0 24.0 Q 43.0 24.0 40.7 28.6 Q 38.5 33.3 34.5 35.8 Q 30.5 38.3 25.9 40.6 Q 21.3 42.9 17.4 39.5 Q 13.5 36.1 10.6 32.4 Q 7.8 28.8 7.6 24.0 Q 7.5 19.2 9.1 13.9 Q 10.6 8.6 16.2 8.5 Q 21.8 8.5 26.2 9.1 Q 30.5 9.7 35.4 11.6 Q 40.3 13.5 41.7 18.7 Z"/>
+              <path class="ring-outer" d="M 43.0 24.0 Q 43.0 24.0 40.7 28.6 Q 38.5 33.3 34.5 35.8 Q 30.5 38.3 25.9 40.6 Q 21.3 42.9 17.4 39.5 Q 13.5 36.1 10.6 32.4 Q 7.8 28.8 7.6 24.0 Q 7.5 19.2 9.1 13.9 Q 10.6 8.6 16.2 8.5 Q 21.8 8.5 26.2 9.1 Q 30.5 9.7 35.4 11.6 Q 40.3 13.5 41.7 18.7 Z"/>
+              <path class="ring-inner" d="M 40.5 24.0 Q 40.5 24.0 37.5 28.4 Q 34.6 32.9 30.5 35.3 Q 26.4 37.7 21.7 36.9 Q 17.0 36.2 13.6 32.6 Q 10.2 29.0 10.0 23.9 Q 9.8 18.8 12.8 14.4 Q 15.9 9.9 21.1 10.1 Q 26.4 10.4 31.8 11.6 Q 37.2 12.9 38.8 18.5 Z"/>
+              <circle class="ring-spatter" cx="24.6" cy="44.4" r="1.02"/><circle class="ring-spatter" cx="33.1" cy="5.1" r="1.41"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </aside>
+    <div class="passport-gutter"></div>
   <main>
     <h1 data-i18n="heading"></h1>
     <p class="lede" data-i18n="lede"></p>
@@ -409,7 +953,11 @@
         <label data-i18n="frame2_app_id_label"></label>
         <input id="github-app-id-input" type="text" inputmode="numeric" autocomplete="off">
         <label data-i18n="frame2_private_key_label"></label>
-        <input id="github-app-key-file-input" type="file" accept=".pem,application/x-pem-file">
+        <div class="file-field">
+          <input id="github-app-key-file-input" class="file-field-input" type="file" accept=".pem,application/x-pem-file">
+          <label class="file-field-button" for="github-app-key-file-input" data-i18n="choose_file_button"></label>
+          <span class="file-field-name" id="github-app-key-file-name"></span>
+        </div>
         <button id="github-app-validate-submit" type="button" data-i18n="validate_button"></button>
         <ul id="github-app-checklist"></ul>
         <p id="github-app-error" class="frame-error"></p>
@@ -458,7 +1006,11 @@
           <label><input type="radio" name="llm-provider-choice" value="vertex" id="llm-provider-choice-vertex"> <span data-i18n="frame4_provider_vertex"></span></label>
         </div>
         <input id="llm-provider-api-key-input" type="password" style="display: none;">
-        <input id="llm-provider-file-input" type="file" accept="application/json" style="display: none;">
+        <div class="file-field" id="llm-provider-file-field" style="display: none;">
+          <input id="llm-provider-file-input" class="file-field-input" type="file" accept="application/json">
+          <label class="file-field-button" for="llm-provider-file-input" data-i18n="choose_file_button"></label>
+          <span class="file-field-name" id="llm-provider-file-name"></span>
+        </div>
         <button id="llm-provider-validate-submit" type="button" data-i18n="validate_button" style="display: none;"></button>
         <div id="llm-provider-model-section" style="display: none;">
           <p data-i18n="frame4_model_instructions"></p>
@@ -512,6 +1064,7 @@
       </div>
     </details>
   </main>
+  </div>
 
 <script>
   // Derived from the page's own origin, never templated in from an env var.
@@ -527,6 +1080,7 @@
     en: {
       page_title: "Set up your own reviewer",
       heading: "Set up your own PR review bot",
+      stamp_grid_title: "Your passport",
       lede: "Work through each step below. What you enter is kept in a short-lived session so your progress survives closing the tab — use \"Start over\" if you want to clear it.",
       theme_light: "Light", theme_dark: "Dark", theme_system: "System",
       theme_popup_title: "Theme", lang_popup_title: "Language",
@@ -583,6 +1137,8 @@
       err_render_deploy_timeout: "Still deploying after 15 minutes. It may still finish — check again.",
       validate_button: "Validate",
       change_button: "Change",
+      choose_file_button: "Choose file",
+      no_file_chosen: "No file chosen",
       badge_locked: "Locked", badge_ready: "Not started",
       badge_error: "Error", badge_done: "✓ Validated",
       badge_checking: "Checking…",
@@ -676,6 +1232,7 @@
     he: {
       page_title: "הקמת בודק ה-PR שלך",
       heading: "הקמת בוט בדיקת PR משלך",
+      stamp_grid_title: "הדרכון שלך",
       lede: "עברו על כל שלב למטה. מה שתזינו נשמר בהפעלה קצרת-מועד כדי שההתקדמות שלכם תישרד סגירת הכרטיסייה — השתמשו ב\"התחלה מחדש\" כדי לנקות אותה.",
       theme_light: "בהיר", theme_dark: "כהה", theme_system: "מערכת",
       theme_popup_title: "עיצוב", lang_popup_title: "שפה",
@@ -732,6 +1289,8 @@
       err_render_deploy_timeout: "עדיין בפריסה אחרי 15 דקות. ייתכן שתסתיים בהמשך — בדוק שוב.",
       validate_button: "אימות",
       change_button: "שינוי",
+      choose_file_button: "בחירת קובץ",
+      no_file_chosen: "לא נבחר קובץ",
       badge_locked: "נעול", badge_ready: "טרם התחיל",
       badge_error: "שגיאה", badge_done: "✓ אומת",
       badge_checking: "בודק…",
@@ -847,6 +1406,22 @@
     return STRINGS[currentLang][key] || STRINGS.en[key] || key;
   }
 
+  // Custom file-field controls (see the .file-field CSS): the filename
+  // status text is dynamic content, not a static data-i18n label, so it's
+  // deliberately excluded from the blanket [data-i18n] loop in
+  // applyLanguage below (that would stomp a just-chosen real filename back
+  // to the placeholder on every language switch) and instead wired here.
+  function resetFileFieldName(nameId) {
+    document.getElementById(nameId).textContent = t("no_file_chosen");
+  }
+  function wireFileField(inputId, nameId) {
+    const input = document.getElementById(inputId);
+    input.addEventListener("change", () => {
+      const file = input.files[0];
+      document.getElementById(nameId).textContent = file ? file.name : t("no_file_chosen");
+    });
+  }
+
   function applyTheme(theme) {
     currentTheme = theme;
     localStorage.setItem("onboarding_theme", theme);
@@ -870,6 +1445,12 @@
     document.getElementById("themePopupTitle").textContent = t("theme_popup_title");
     document.getElementById("langPopupTitle").textContent = t("lang_popup_title");
     document.querySelector(`input[name="lang"][value="${lang}"]`).checked = true;
+    // File-field names hold a real chosen filename, not a translatable
+    // label -- only re-localize the placeholder when no file is selected.
+    [["github-app-key-file-input", "github-app-key-file-name"],
+     ["llm-provider-file-input", "llm-provider-file-name"]].forEach(([inputId, nameId]) => {
+      if (!document.getElementById(inputId).files[0]) resetFileFieldName(nameId);
+    });
     refreshFrameBadges();
     if (currentRenderKeyErrorKey) {
       document.getElementById("render-key-error").textContent = t(currentRenderKeyErrorKey);
@@ -1014,6 +1595,30 @@
     // and pushing the Change button down with it.
     badgeEl(id).textContent = label;
     detailEl(id).textContent = detail ? `— ${detail}` : "";
+    updateStampSlot(id, status);
+  }
+
+  // The left-page stamp grid is a pure read-out of frameState -- it never
+  // decides anything, it just mirrors "done" (a landed ink stamp) versus
+  // every other status (still a blank/dashed slot). A stamp that's already
+  // landed does not replay its landing animation on an unrelated re-render
+  // (e.g. a language switch) -- only a genuine locked/ready/error -> done
+  // transition gets "just-landed".
+  const stampedFrames = new Set();
+  function updateStampSlot(id, status) {
+    const slot = document.querySelector(`.stamp-slot[data-frame="${id}"]`);
+    if (!slot) return;
+    const isDone = status === "done" || status === "deploy_done";
+    if (isDone && !stampedFrames.has(id)) {
+      stampedFrames.add(id);
+      slot.classList.add("stamped", "just-landed");
+      slot.addEventListener("animationend", () => slot.classList.remove("just-landed"), {once: true});
+    } else if (!isDone) {
+      stampedFrames.delete(id);
+      slot.classList.remove("stamped", "just-landed");
+    } else {
+      slot.classList.add("stamped");
+    }
   }
 
   function refreshFrameBadges() {
@@ -1274,7 +1879,8 @@
     apiKeyInput.style.display = "none";
     const fileInput = document.getElementById("llm-provider-file-input");
     fileInput.value = "";
-    fileInput.style.display = "none";
+    document.getElementById("llm-provider-file-field").style.display = "none";
+    resetFileFieldName("llm-provider-file-name");
     document.getElementById("llm-provider-validate-submit").style.display = "none";
     document.getElementById("llm-provider-validate-submit").disabled = false;
     document.getElementById("llm-provider-continue-submit").disabled = false;
@@ -1321,8 +1927,9 @@
     const submitBtn = document.getElementById("llm-provider-validate-submit");
     apiKeyInput.value = "";
     fileInput.value = "";
+    resetFileFieldName("llm-provider-file-name");
     apiKeyInput.style.display = (provider === "gemini" || provider === "groq") ? "block" : "none";
-    fileInput.style.display = (provider === "vertex") ? "block" : "none";
+    document.getElementById("llm-provider-file-field").style.display = (provider === "vertex") ? "flex" : "none";
     submitBtn.style.display = provider ? "block" : "none";
   }
 
@@ -1710,8 +2317,12 @@
     toggle.setAttribute("title", label);
     toggle.setAttribute("aria-pressed", visible ? "true" : "false");
     // Eye = "reveal it", crossed-out eye = "hide it again".
-    document.getElementById("dashboard-auth-eye-open").hidden = visible;
-    document.getElementById("dashboard-auth-eye-closed").hidden = !visible;
+    // .hidden (the IDL property) doesn't reliably reflect to the real
+    // `hidden` attribute on SVGElement in every browser, unlike HTMLElement --
+    // toggleAttribute writes the attribute directly, which svg[hidden] (the
+    // CSS rule above) actually selects on.
+    document.getElementById("dashboard-auth-eye-open").toggleAttribute("hidden", visible);
+    document.getElementById("dashboard-auth-eye-closed").toggleAttribute("hidden", !visible);
   }
 
   // Timers per copy-button id, so a second click before the "Copied!" state
@@ -1742,15 +2353,16 @@
     button.classList.add("copied");
     button.setAttribute("aria-label", t("copy_button_copied"));
     button.setAttribute("title", t("copy_button_copied"));
-    button.querySelector(".copy-icon").hidden = true;
-    button.querySelector(".copy-check").hidden = false;
+    // Same SVGElement .hidden caveat as the password-toggle icons above.
+    button.querySelector(".copy-icon").toggleAttribute("hidden", true);
+    button.querySelector(".copy-check").toggleAttribute("hidden", false);
     tooltip.textContent = t("copy_button_copied");
     tooltip.classList.add("show");
     copyButtonRevertTimers[targetId] = setTimeout(() => {
       button.classList.remove("copied");
       setCopyButtonLabel(button);
-      button.querySelector(".copy-icon").hidden = false;
-      button.querySelector(".copy-check").hidden = true;
+      button.querySelector(".copy-icon").toggleAttribute("hidden", false);
+      button.querySelector(".copy-check").toggleAttribute("hidden", true);
       tooltip.classList.remove("show");
     }, 2500);
   }
@@ -1898,6 +2510,7 @@
     document.getElementById("github-app-checklist").innerHTML = "";
     document.getElementById("github-app-id-input").value = "";
     document.getElementById("github-app-key-file-input").value = "";
+    resetFileFieldName("github-app-key-file-name");
     document.getElementById("github-app-validate-submit").disabled = false;
     currentGithubAppErrorKey = null;
   }
@@ -2645,6 +3258,106 @@
     });
   }
 
+  // Drives the frame-hinge signature interaction (see the .frame-body
+  // comment above) for both directions via the Web Animations API --
+  // native <details> can only reveal/hide content instantly, it has no
+  // way to animate its own collapse, and CSS keyframes triggered by the
+  // [open] attribute turned out unreliable for the open direction too.
+  //
+  // Two non-obvious things this depends on, found the hard way while
+  // tuning this:
+  // 1. .frame-body's own padding-bottom and border-top are real CSS box
+  //    model, not "content" -- animating only `height` to 0 leaves them
+  //    showing as a residual sliver (~19px) throughout the "closed"
+  //    portion of the animation, which then vanishes in one visible jump
+  //    the instant `open` actually flips. Animating padding-bottom and
+  //    border-top-width down to 0 in lockstep with height removes that
+  //    residual entirely.
+  // 2. `fill: "forwards"` is required so a finished animation's held end
+  //    state doesn't lapse (and snap back to the pre-animation style)
+  //    during the gap between the animation finishing and its `onfinish`
+  //    callback running -- but a fill:"forwards" animation stays resident
+  //    once finished, so a later animation on the same element must
+  //    explicitly cancel it first, or repeated open/close toggling piles
+  //    up conflicting held animations instead of replacing the old one.
+  function wireFrameHingeAnimations() {
+    const HINGE_DURATION = 600;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return; // native instant toggle only
+
+    document.querySelectorAll("details.frame").forEach((el) => {
+      const summary = el.querySelector(":scope > summary");
+      const body = el.querySelector(":scope > .frame-body");
+      if (!summary || !body) return;
+
+      const cs = getComputedStyle(body);
+      const fullPadBottom = cs.paddingBottom;
+      const fullBorderTop = cs.borderTopWidth;
+
+      function hingeFrames(targetHeightPx) {
+        return [
+          {height: "0px", paddingBottom: "0px", borderTopWidth: "0px",
+           transform: "perspective(700px) rotateX(-20deg) translateY(-8px)", opacity: 0.3},
+          {height: targetHeightPx + "px", paddingBottom: fullPadBottom, borderTopWidth: fullBorderTop,
+           transform: "perspective(700px) rotateX(0deg) translateY(0)", opacity: 1},
+        ];
+      }
+
+      let currentAnim = null;
+      function playHinge(keyframes, onfinish) {
+        if (currentAnim) currentAnim.cancel();
+        currentAnim = body.animate(keyframes, {duration: HINGE_DURATION, easing: "ease", fill: "forwards"});
+        currentAnim.onfinish = () => {
+          currentAnim = null;
+          onfinish();
+        };
+      }
+
+      let animating = false;
+
+      summary.addEventListener("click", (event) => {
+        if (el.dataset.locked === "true") return; // guardLockedFrames handles this
+        if (el.open && !animating) {
+          // Closing: measure the current height while still open, then
+          // animate height/padding/border and transform/opacity down
+          // together, and only remove `open` once that finishes.
+          event.preventDefault();
+          animating = true;
+          const currentHeight = body.scrollHeight;
+          body.style.overflow = "hidden";
+          playHinge([...hingeFrames(currentHeight)].reverse(), () => {
+            el.open = false;
+            body.style.overflow = "";
+            body.style.height = "";
+            body.style.paddingBottom = "";
+            body.style.borderTopWidth = "";
+            animating = false;
+          });
+        }
+        // Opening falls through to the native toggle; handled below.
+      });
+
+      el.addEventListener("toggle", () => {
+        if (!el.open) return;
+        // The native toggle already revealed the content at its natural
+        // height -- read that as the animation's target, then immediately
+        // clamp back to 0 before the browser paints so the grow-animation
+        // has a real starting point instead of flashing full-height first.
+        const targetHeight = body.scrollHeight;
+        body.style.overflow = "hidden";
+        body.style.height = "0px";
+        body.style.paddingBottom = "0px";
+        body.style.borderTopWidth = "0px";
+        playHinge(hingeFrames(targetHeight), () => {
+          body.style.overflow = "";
+          body.style.height = "";
+          body.style.paddingBottom = "";
+          body.style.borderTopWidth = "";
+        });
+      });
+    });
+  }
+
   function attachChangeButtons() {
     document.querySelectorAll(".frame-change").forEach((btn) => {
       btn.addEventListener("click", (event) => {
@@ -2700,6 +3413,8 @@
     document.getElementById("render-deploy-trigger-submit").addEventListener("click", triggerRenderDeploy);
     document.getElementById("render-deploy-check-again-submit").addEventListener("click", checkRenderDeployStatusOnce);
     document.getElementById("github-app-validate-submit").addEventListener("click", validateGithubApp);
+    wireFileField("github-app-key-file-input", "github-app-key-file-name");
+    wireFileField("llm-provider-file-input", "llm-provider-file-name");
     document.getElementById("supabase-key-submit").addEventListener("click", validateSupabaseKey);
     document.getElementById("supabase-org-submit").addEventListener("click", confirmSupabaseOrg);
     document.getElementById("supabase-check-status-submit").addEventListener("click", checkSupabaseStatusOnce);
@@ -2715,6 +3430,7 @@
       r.addEventListener("change", handleLlmProviderChoice);
     });
     guardLockedFrames();
+    wireFrameHingeAnimations();
     attachChangeButtons();
 
     document.getElementById("themeToggleBtn").addEventListener("click", (event) => openPopup("themePopupBackdrop", event.currentTarget));

@@ -21,3 +21,15 @@ auth-link.txt
 
 # Personal/local Claude Code permission overrides -- not meant to be shared
 .claude/settings.local.json
+
+# Impeccable process scratch -- transient, regenerated per design/review
+# pass (decision-round and comp images, build-phase state, question-page
+# logs, finish-review screenshot evidence); stale copies in git would be
+# actively misleading rather than useful history. Config/surface-brief/
+# design-system state under .impeccable/ is still tracked (matches the
+# sibling review-engine project's own .impeccable/.gitignore convention).
+.impeccable/mocks/
+.impeccable/build/
+.impeccable/questions/
+.impeccable/review/
+.impeccable/hook.cache.json

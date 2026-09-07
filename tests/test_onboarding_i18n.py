@@ -116,6 +116,6 @@ async def test_dynamic_badge_and_error_content_re_translate_on_language_switch()
     # message gets re-translated, not left frozen in the old language.
     assert "function applyLanguage" in body
     apply_language_start = body.index("function applyLanguage")
-    apply_language_body = body[apply_language_start:apply_language_start + 1200]
+    apply_language_body = body[apply_language_start:apply_language_start + 2000]
     assert "currentRenderKeyErrorKey" in apply_language_body
     assert "t(currentRenderKeyErrorKey)" in apply_language_body

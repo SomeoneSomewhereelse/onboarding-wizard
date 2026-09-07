@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-07T00:00:00Z",
+  "title": "Design System: Onboarding Wizard",
+  "extensions": {
+    "colorMeta": {
+      "control-blue": {
+        "role": "primary",
+        "displayName": "Control Blue",
+        "canonical": "#2a4d8a",
+        "tonalRamp": [
+          "#0d1a30",
+          "#132548",
+          "#1c3660",
+          "#2a4d8a",
+          "#4a6ba3",
+          "#7ba7d9",
+          "#a8c4e6",
+          "#dbe6f3"
+        ]
+      },
+      "gold-foil": {
+        "role": "secondary",
+        "displayName": "Gold Foil",
+        "canonical": "#9c7a1f",
+        "tonalRamp": [
+          "#332804",
+          "#4d3c09",
+          "#66500e",
+          "#9c7a1f",
+          "#c9a227",
+          "#dcbb52",
+          "#e9d086",
+          "#f5e9c8"
+        ]
+      },
+      "stamp-red": {
+        "role": "tertiary",
+        "displayName": "Stamp Red",
+        "canonical": "#8a1f2b",
+        "tonalRamp": [
+          "#2e0a0d",
+          "#471016",
+          "#611620",
+          "#8a1f2b",
+          "#a83b47",
+          "#d97583",
+          "#e8a4ad",
+          "#f5d3d7"
+        ]
+      },
+      "stamp-blue": {
+        "role": "tertiary",
+        "displayName": "Stamp Blue",
+        "canonical": "#2a4d8a",
+        "tonalRamp": [
+          "#0d1a30",
+          "#132548",
+          "#1c3660",
+          "#2a4d8a",
+          "#4a6ba3",
+          "#7ba7d9",
+          "#a8c4e6",
+          "#dbe6f3"
+        ]
+      },
+      "page-ground": {
+        "role": "neutral",
+        "displayName": "Page Ground",
+        "canonical": "#dfe1d9",
+        "tonalRamp": [
+          "#10131c",
+          "#1c2029",
+          "#2c303a",
+          "#dfe1d9",
+          "#e6e8e1",
+          "#eceee9",
+          "#f4f5f2",
+          "#fafbf9"
+        ]
+      },
+      "paper-cream": {
+        "role": "neutral",
+        "displayName": "Paper Cream",
+        "canonical": "#efe6cf",
+        "tonalRamp": [
+          "#2a2418",
+          "#3c331f",
+          "#5a4c2d",
+          "#efe6cf",
+          "#f2ead8",
+          "#f5eee1",
+          "#f8f3ea",
+          "#fbf8f2"
+        ]
+      },
+      "paper-cream-deep": {
+        "role": "neutral",
+        "displayName": "Paper Cream, Deep",
+        "canonical": "#e6dcbf",
+        "tonalRamp": [
+          "#221d13",
+          "#332b1c",
+          "#4d4029",
+          "#e6dcbf",
+          "#eae1c9",
+          "#eee6d5",
+          "#f2ecdf",
+          "#f7f2ea"
+        ]
+      },
+      "ledger-ink": {
+        "role": "neutral",
+        "displayName": "Ledger Ink",
+        "canonical": "#241d12",
+        "tonalRamp": [
+          "#0f0c07",
+          "#241d12",
+          "#3c301e",
+          "#5c4c30",
+          "#83714e",
+          "#a89968",
+          "#c9bd94",
+          "#ecdfc0"
+        ]
+      },
+      "ledger-ink-muted": {
+        "role": "neutral",
+        "displayName": "Ledger Ink, Muted",
+        "canonical": "#6b5f47",
+        "tonalRamp": [
+          "#1c1810",
+          "#332c1e",
+          "#4c422e",
+          "#6b5f47",
+          "#867860",
+          "#a89968",
+          "#c6bb9e",
+          "#e3dcc9"
+        ]
+      },
+      "ledger-rule": {
+        "role": "neutral",
+        "displayName": "Ledger Rule",
+        "canonical": "#c9b98f",
+        "tonalRamp": [
+          "#2a2418",
+          "#4a4128",
+          "#665a38",
+          "#c9b98f",
+          "#d5c7a3",
+          "#e0d5b8",
+          "#ecdfcd",
+          "#f6f0e4"
+        ]
+      },
+      "cover-navy": {
+        "role": "neutral",
+        "displayName": "Cover Navy",
+        "canonical": "#1f2a44",
+        "tonalRamp": [
+          "#070a13",
+          "#0d1220",
+          "#16203a",
+          "#1f2a44",
+          "#2c3c5e",
+          "#425a86",
+          "#7995bc",
+          "#b8c8de"
+        ]
+      },
+      "status-ok": {
+        "role": "neutral",
+        "displayName": "Status Ok",
+        "canonical": "#1f6b3a",
+        "tonalRamp": [
+          "#0a2414",
+          "#123a20",
+          "#19522c",
+          "#1f6b3a",
+          "#358c53",
+          "#5fbf87",
+          "#96d9b3",
+          "#cdedd9"
+        ]
+      },
+      "status-fail": {
+        "role": "neutral",
+        "displayName": "Status Fail (alias of Stamp Red)",
+        "canonical": "#8a1f2b",
+        "tonalRamp": [
+          "#2e0a0d",
+          "#471016",
+          "#611620",
+          "#8a1f2b",
+          "#a83b47",
+          "#d97583",
+          "#e8a4ad",
+          "#f5d3d7"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The page h1, frame titles, and the stamp-grid's certificate-style label. Never used for i18n body strings (unreliable Hebrew rendering)."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Small certificate-feel headings: stamp-grid title, frame titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Frame instructions and lede copy; the Hebrew-safe face carrying every i18n string."
+      },
+      "body-small": {
+        "displayName": "Body Small",
+        "purpose": "Badges, detail lines, error text."
+      }
+    },
+    "shadows": [
+      {
+        "name": "overlay",
+        "value": "0 8px 24px rgba(0, 0, 0, 0.2)",
+        "purpose": "Theme/language popup \u2014 a true detached overlay above the page."
+      },
+      {
+        "name": "tooltip",
+        "value": "0 2px 8px rgba(0, 0, 0, 0.15)",
+        "purpose": "Copy-confirmation tooltip."
+      },
+      {
+        "name": "card-lift",
+        "value": "0 2px 10px rgba(0, 0, 0, 0.09), 0 1px 0 rgba(0, 0, 0, 0.04)",
+        "purpose": "Every frame card \u2014 opaque and raised above the passport-page texture, the system's primary elevation cue (revised 2026-09-07 from the barely-there paper-edge hairline)."
+      },
+      {
+        "name": "ink-press",
+        "value": "inset 0 1px 0 rgba(255,255,255,0.16), 0 1px 2px rgba(0,0,0,0.22)",
+        "purpose": "Primary/secondary task-action buttons \u2014 an embossed pressed-ink depth; gains a thin gold ring on hover."
+      }
+    ],
+    "motion": [
+      {
+        "name": "stamp-land",
+        "value": "0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "One-shot land animation when a stamp is earned: scale 2.2 -> 0.9 -> 1. Disabled under prefers-reduced-motion."
+      },
+      {
+        "name": "frame-hinge",
+        "value": "600ms ease, height/padding-bottom/border-top-width 0 -> natural + perspective(700px) rotateX(-20deg) translateY(-8px) opacity 0.3 -> rotateX(0) translateY(0) opacity 1",
+        "purpose": "Frame body hinges open like a book cover on expand and shuts in reverse on collapse, driven via the Web Animations API (wireFrameHingeAnimations()) rather than CSS -- native <details> can't animate its own collapse. Disabled under prefers-reduced-motion."
+      },
+      {
+        "name": "page-morph-in",
+        "value": "500ms ease-out, opacity 0 -> 1 + scale(0.98) -> scale(1)",
+        "purpose": "One-time page-load entrance on .passport-spread -- a restrained PowerPoint-Morph-style cross-fade, not a more literal cover-open sweep or staggered cascade. Plain CSS animation (no toggle state to manage). Disabled under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "two-page-spread",
+        "value": "860px",
+        "purpose": "Above: two-page desktop spread with sticky stamp grid and vertical gutter. Below: single column, stamp grid collapses to a 4-column strip above the form, gutter becomes a horizontal rule."
+      },
+      {
+        "name": "compact",
+        "value": "480px",
+        "purpose": "Header controls center instead of right-align; Change button goes full-width."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The validate/submit action inside every frame body.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Validate</button>",
+      "css": ".ds-btn-primary { background: #2a4d8a; color: #fff; border: 1px solid #16305c; border-radius: 3px; padding: 0.5rem 1.1rem; min-height: 2.5rem; font-family: \"Fraunces\", Georgia, serif; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 1px 2px rgba(0,0,0,0.22); transition: box-shadow 0.15s ease, transform 0.05s ease; } .ds-btn-primary:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 1px 2px rgba(0,0,0,0.22), 0 0 0 2px rgba(156,122,39,0.45); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 2px solid #7ba7d9; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; transform: none; }"
+    },
+    {
+      "name": "Secondary (Change) Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Appears once a frame is done, to redo it and relock its dependents.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">Change</button>",
+      "css": ".ds-btn-secondary { background: #e6dcbf; color: #241d12; border: 1px solid #c9b98f; border-radius: 3px; padding: 0.4rem 0.9rem; min-height: 2.5rem; font-family: \"Fraunces\", Georgia, serif; font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; } .ds-btn-secondary:hover { border-color: #9c7a1f; } .ds-btn-secondary:focus-visible { outline: 2px solid #2a4d8a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Header Pill Control",
+      "kind": "button",
+      "refersTo": "button-pill-control",
+      "description": "Start Over / theme / language controls in the top bar.",
+      "html": "<button class=\"ds-btn-pill\" type=\"button\">Start over</button>",
+      "css": ".ds-btn-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: #efe6cf; color: #241d12; border: 1px solid #c9b98f; border-radius: 999px; padding: 0.4rem 0.9rem; font-size: 0.9rem; min-height: 2.5rem; cursor: pointer; } .ds-btn-pill:hover { border-color: #2a4d8a; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Standard credential/text field inside a frame body.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"rnd_...\">",
+      "css": ".ds-input { width: 100%; padding: 0.5rem; margin: 0.5rem 0; background: #e6dcbf; border: 1px solid #c9b98f; border-radius: 6px; color: #241d12; min-height: 2.5rem; font: inherit; } .ds-input:focus-visible { outline: 2px solid #2a4d8a; outline-offset: 1px; }"
+    },
+    {
+      "name": "Frame Card (collapsed)",
+      "kind": "card",
+      "refersTo": null,
+      "description": "One accordion step of the wizard; transparent so the page's own ruled paper shows through.",
+      "html": "<details class=\"ds-frame\" open><summary class=\"ds-frame-summary\"><span class=\"ds-frame-title\">1. Render API key</span><span class=\"ds-frame-badge\">Not started</span></summary></details>",
+      "css": ".ds-frame { background: #efe6cf; border: 1px solid #c9b98f; border-radius: 6px; margin-bottom: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.09), 0 1px 0 rgba(0,0,0,0.04); } .ds-frame-summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.9rem 1.1rem; } .ds-frame-summary::-webkit-details-marker { display: none; } .ds-frame-title { font-family: \"Fraunces\", Georgia, serif; font-weight: 600; } .ds-frame-badge { font-size: 0.85rem; color: #6b5f47; }"
+    },
+    {
+      "name": "Stamp Grid Cell (earned)",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Signature component: one 2x4-grid cell showing a hand-inked stamp once its frame's credential validates -- a hand-perturbed ring with a blurred bleed layer, a crisp outer ring, a thin inner ring, and two ink-spatter dots, all under a fixed per-frame tilt.",
+      "html": "<div class=\"ds-stamp-slot ds-stamped\" style=\"--tilt: -7deg; --ink: #2a4d8a;\"><svg viewBox=\"0 0 48 48\" aria-hidden=\"true\"><g class=\"ds-glyph\" fill=\"none\" stroke=\"var(--ink)\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"24\" r=\"9\"/><path d=\"M25 24h19M36 24v7M42 24v5\"/></g><g class=\"ds-ring\" fill=\"none\" stroke-linecap=\"round\"><path class=\"ds-ring-bleed\" stroke=\"var(--ink)\" stroke-width=\"3.2\" opacity=\"0.3\" filter=\"blur(1.1px)\" d=\"M 40.2 24.0 Q 40.2 24.0 39.6 28.8 Q 39.0 33.6 35.5 37.6 Q 32.0 41.6 26.7 42.2 Q 21.3 42.8 16.4 40.7 Q 11.4 38.5 9.2 33.7 Q 7.1 29.0 6.2 23.7 Q 5.3 18.5 8.7 14.4 Q 12.1 10.3 16.9 9.3 Q 21.7 8.3 26.6 8.1 Q 31.4 7.8 34.3 11.7 Q 37.2 15.5 38.7 19.8 Z\"/><path class=\"ds-ring-outer\" stroke=\"var(--ink)\" stroke-width=\"1.7\" opacity=\"0.92\" d=\"M 40.2 24.0 Q 40.2 24.0 39.6 28.8 Q 39.0 33.6 35.5 37.6 Q 32.0 41.6 26.7 42.2 Q 21.3 42.8 16.4 40.7 Q 11.4 38.5 9.2 33.7 Q 7.1 29.0 6.2 23.7 Q 5.3 18.5 8.7 14.4 Q 12.1 10.3 16.9 9.3 Q 21.7 8.3 26.6 8.1 Q 31.4 7.8 34.3 11.7 Q 37.2 15.5 38.7 19.8 Z\"/><circle class=\"ds-spatter\" fill=\"var(--ink)\" opacity=\"0.55\" cx=\"37.5\" cy=\"42.2\" r=\"0.94\"/><circle class=\"ds-spatter\" fill=\"var(--ink)\" opacity=\"0.55\" cx=\"18.7\" cy=\"2.0\" r=\"1.11\"/></g></svg></div>",
+      "css": ".ds-stamp-slot { aspect-ratio: 1; width: 96px; border: 1.5px solid var(--ink); border-radius: 6px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--ink) 8%, #e6dcbf); overflow: hidden; } .ds-stamp-slot svg { width: 62%; height: 62%; overflow: visible; transform: rotate(var(--tilt)) scale(1); }"
+    },
+    {
+      "name": "Passport Page Corner Tab",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Signature component: the perforated tear-off corner tab marking the active right page, built from logical CSS properties so it mirrors sides correctly under RTL.",
+      "html": "<div class=\"ds-page\"><div class=\"ds-corner-tab\"></div><p>Page content on ruled paper.</p></div>",
+      "css": ".ds-page { position: relative; background: #efe6cf; background-image: repeating-linear-gradient(to bottom, transparent 0 2.1rem, #c9b98f 2.1rem calc(2.1rem + 1px)), repeating-linear-gradient(to right, transparent 0 5px, color-mix(in srgb, #c9b98f 55%, transparent) 5px 6px); background-position: 0 5.5rem, 0 0; padding: 2rem 1rem; } .ds-corner-tab { position: absolute; top: 0; inset-inline-end: 1.5rem; width: 14px; height: 40px; background: radial-gradient(circle 1.6px at 7px 6px, #dfe1d9 98%, transparent 100%), radial-gradient(circle 1.6px at 7px 16px, #dfe1d9 98%, transparent 100%), radial-gradient(circle 1.6px at 7px 26px, #dfe1d9 98%, transparent 100%), radial-gradient(circle 1.6px at 7px 36px, #dfe1d9 98%, transparent 100%), #efe6cf; border-inline-start: 1px dashed #c9b98f; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Stamped Passport",
+    "overview": "The wizard is a passport control desk, not a progress bar. A visitor doesn't fill out a form; they get cleared, one gate at a time, toward a live deployment on the far side. The whole system is built around one physical object: an open passport booklet spanning the viewport, its left page a stamp grid that fills in as each of eight external services is validated, its right page the currently active frame's form, printed on cream laid paper with ruled baseline lines like an old customs declaration. A navy cloth cover binds the outside edges of the viewport at all times, whatever the scroll position. There is no percentage, no numbered stepper dots, no \"step 3 of 8\" language doing the progress-communication work -- the stamp grid does it visually, legible at a glance before any copy is read.\n\nThe material logic is ink-and-paper, not glass-and-shadow: surfaces are flat, cards are transparent panes that let the ruled paper show through rather than opaque tiles stacked on top of it, and the one recurring dimensional cue is the stamp ring's own hand-inked bleed, not a system-wide shadow language. Gold foil is the one ornamental color in the system and its restraint is the point -- it marks the certificate underline beneath the page heading, the gutter rule between the two pages, and nothing else. The interactive accent (blue) and the ceremonial accent (gold) are kept strictly separate: gold never sits on a clickable control, and the accent blue never appears in a stamp ring.\n\nConfirmed rejection: the category default of a horizontal progress bar of gray circles/steps. This system replaces that pattern's entire vocabulary (linear stepper, percentage counter, numbered dots) with the stamp grid, and no numbered-stepper affordance should be reintroduced alongside it.",
+    "keyCharacteristics": [
+      "A physical, bound-booklet metaphor carried in real materials (cloth weave, laid paper, foil, hand-inked stamps) rather than illustrated once and abandoned.",
+      "Progress is a spatial, cumulative artifact (the filling stamp grid) rather than a numeric readout.",
+      "Flat surfaces; the only dimensional texture is the stamp ring's own ink bleed and the cloth cover's cross-hatch weave.",
+      "Gold foil is rare by design -- headers and the center gutter rule only, never a control.",
+      "The layout physically mirrors under RTL (the stamp grid moves to the reading-first side), not just text-direction flipping."
+    ],
+    "rules": [
+      {
+        "name": "The Ceremonial-vs-Interactive Rule",
+        "body": "Gold foil marks ceremony (headers, the gutter rule, the passport label); Control Blue marks interactivity (links, buttons, focus, one stamp ink). The two never trade places -- a control never turns gold, and the gutter rule never turns blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Dark-Mode-Warms Rule",
+        "body": "Dark theme is lamplight, not inversion: the paper surface shifts to a warm dark brown, not a cold gray or a flipped-white, and gold foil actually intensifies toward its most saturated value rather than dimming, matching how foil catches lamplight.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Serif-Surface Rule",
+        "body": "The display serif appears only on headings and certificate-style labels (h1, .frame-title, .stamp-slot .stamp-label) -- never on body copy, form fields, or any i18n string that must also render in Hebrew.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ink-Not-Elevation Rule",
+        "body": "Depth in this system comes from ink bleeding into paper (the stamp ring's blur layer), not from surfaces lifting off the page. A new component needing a dimensional cue should reach for a material effect (texture, bleed, layered strokes) before reaching for box-shadow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep gold foil (--gold) to ceremonial marks only -- header underline, gutter rule, the passport label -- never a clickable surface.",
+      "Do build any new mirrored-layout element (like the perforated corner tab) with logical CSS properties (inset-inline-*, border-inline-*) so it flips correctly under dir=\"rtl\" without a duplicated rule.",
+      "Do let frame/card backgrounds stay transparent so the ruled-paper texture continues to read through new components added to main.",
+      "Do give any new stamp-grid glyph a fixed per-frame tilt and scale (inline custom properties), matching the existing hand-applied irregularity -- a perfectly upright, uniformly scaled new stamp would visibly break the set.",
+      "Do keep the sans body face as the only face carrying i18n strings; reserve the display serif for headings/labels that don't need to render Hebrew."
+    ],
+    "donts": [
+      "Don't reintroduce a numbered-stepper or percentage-progress affordance alongside the stamp grid -- the direction contract explicitly rejects the horizontal-progress-bar category default this system replaces.",
+      "Don't add box-shadow-based elevation to cards, inputs, or buttons as a default lift/hover effect -- this system's few shadows are reserved for genuine overlays (popup, tooltip) and one hairline paper-edge cue, not general polish.",
+      "Don't use any real trademarked service logo (GitHub's octocat, Supabase's logo, etc.) in a stamp glyph -- glyphs are original generic marks (a key, a shield, interlocking rings) by design, per the direction contract.",
+      "Don't manually reverse the passport spread's flex order for RTL (e.g. adding flex-direction: row-reverse) -- the physical mirror already happens for free from DOM order under row, and an explicit reverse would un-mirror it back to LTR's layout."
+    ]
+  }
+}

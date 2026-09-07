@@ -1269,6 +1269,32 @@ async def test_every_getelementbyid_target_exists_in_the_markup():
     assert not missing, f"getElementById() targets with no matching id= in the markup: {missing}"
 
 
+async def test_page_self_hosts_its_display_font():
+    """Same contract as the sibling review-engine project's dashboard/login
+    pages: the certificate-style display face must be self-hosted (never a
+    Google Fonts CDN link an outage or blocked third-party request could
+    silently revert), served via main.py's own /static/fonts mount."""
+    client = await _client()
+    body = (await client.get("/")).text
+    assert "/static/fonts/fraunces-v38-latin-regular.woff2" in body
+    assert "/static/fonts/fraunces-v38-latin-600.woff2" in body
+    assert "/static/fonts/fraunces-v38-latin-700.woff2" in body
+    assert "fonts.googleapis.com" not in body
+    assert "fonts.gstatic.com" not in body
+
+
+async def test_font_files_are_served_from_the_static_mount():
+    client = await _client()
+    for filename in (
+        "fraunces-v38-latin-regular.woff2",
+        "fraunces-v38-latin-600.woff2",
+        "fraunces-v38-latin-700.woff2",
+    ):
+        resp = await client.get(f"/static/fonts/{filename}")
+        assert resp.status_code == 200
+        assert resp.content[:4] == b"wOF2"
+
+
 async def test_webhook_patch_flow_is_fully_removed():
     """Endpoint, client call, retry UI and its strings all go together --
     a leftover half of this flow is worse than either whole."""

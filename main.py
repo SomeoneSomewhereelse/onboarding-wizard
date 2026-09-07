@@ -8,11 +8,13 @@ docs/superpowers/specs/2026-09-01-onboarding-server-side-session-design.md.
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import session_store
 from config import settings
@@ -54,6 +56,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="onboarding-wizard", lifespan=lifespan)
 app.include_router(router)
+
+# Public (no session required) -- the wizard's self-hosted display font,
+# same StaticFiles-mount pattern as the sibling review-engine project's
+# dashboard (~/pr-review-bot/main.py). Serves only the font file(s); no
+# other static asset is mounted, and this carries no visitor credential.
+app.mount(
+    "/static/fonts",
+    StaticFiles(directory=Path(__file__).parent / "static" / "fonts"),
+    name="wizard-fonts",
+)
 
 
 @app.exception_handler(RequestValidationError)
