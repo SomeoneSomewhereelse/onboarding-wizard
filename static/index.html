@@ -2767,6 +2767,13 @@
     document.getElementById("supabase-check-status-submit").style.display = "none";
     document.getElementById("supabase-connect-section").style.display = "block";
     document.getElementById("supabase-error").textContent = "";
+    // supabase-key-submit is disabled by every validateSupabaseKey() attempt
+    // and only re-enabled by that same function's own success/failure
+    // branches -- any other path that lands back on supabase-connect-section
+    // (zero orgs, unauthorized/no_session, INIT_FAILED, a lock/unlock cycle)
+    // must re-enable it here too, or the visitor is stuck on a screen with
+    // no usable button at all.
+    document.getElementById("supabase-key-submit").disabled = false;
     document.getElementById("supabase-org-submit").disabled = false;
     currentSupabaseErrorKey = null;
   }
@@ -2779,16 +2786,16 @@
 
   function supabaseErrorForReason(reason, message) {
     if (reason === "project_creation_rejected" && message) {
-      // Terminal: the org was picked and project creation was rejected for
-      // a business reason (e.g. a free-tier project cap) that retrying the
-      // same request won't fix. Reset first so "Connect Supabase" is back
-      // on screen for the visitor to restart, THEN show the error —
-      // resetSupabaseConnectSection() clears #supabase-error's text too.
-      resetSupabaseConnectSection();
-      // Supabase's own error text, relayed verbatim (spec section 4) —
-      // not a translated string, since it isn't one of ours.
+      // Recoverable: the stored access token and chosen org are still
+      // valid — only the specific create-project request was rejected
+      // (e.g. a duplicate project name, or a plan-level project cap).
+      // Stay on the org/name section so the visitor can retry with a
+      // different name or org, rather than being forced back to
+      // re-enter their access token for no reason.
       setFrameStatus("supabase", "error");
       currentSupabaseErrorKey = null;
+      // Supabase's own error text, relayed verbatim (spec section 4) —
+      // not a translated string, since it isn't one of ours.
       document.getElementById("supabase-error").textContent = message;
       return;
     }

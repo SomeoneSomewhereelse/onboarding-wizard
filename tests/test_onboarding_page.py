@@ -526,13 +526,12 @@ async def test_stored_supabase_credentials_are_parsed_defensively():
 
 
 async def test_terminal_supabase_errors_reset_the_connect_section():
-    """INIT_FAILED (from handleProjectStatusResult), an "unauthorized" or
+    """INIT_FAILED (from handleProjectStatusResult) and an "unauthorized" or
     "no_session" server response (the server-side session's stored token is
-    dead, or there's no session record at all), and
-    project_creation_rejected are dead ends -- resetSupabaseConnectSection()
-    must run before the error is shown so "Connect Supabase" is back on
-    screen to restart the flow, not just fold into the existing
-    error-clearing convention."""
+    dead, or there's no session record at all) are dead ends --
+    resetSupabaseConnectSection() must run before the error is shown so
+    "Connect Supabase" is back on screen to restart the flow, not just fold
+    into the existing error-clearing convention."""
     client = await _client()
     body = (await client.get("/")).text
 
@@ -545,19 +544,46 @@ async def test_terminal_supabase_errors_reset_the_connect_section():
     reason_fn_start = body.index("function supabaseErrorForReason")
     reason_fn_body = body[reason_fn_start : body.index("async function callSupabaseRelay")]
 
-    rejected_branch = reason_fn_body[
-        : reason_fn_body.index('if (reason === "unauthorized" || reason === "no_session")')
-    ]
-    assert "resetSupabaseConnectSection()" in rejected_branch
-    assert rejected_branch.index("resetSupabaseConnectSection()") < rejected_branch.index(
-        'document.getElementById("supabase-error").textContent = message;'
-    )
-
     unauthorized_branch = reason_fn_body[
         reason_fn_body.index('if (reason === "unauthorized" || reason === "no_session")') :
     ]
     assert "resetSupabaseConnectSection();" in unauthorized_branch.split("const key = {")[0]
     assert 'no_session: "err_no_session"' in unauthorized_branch.split("const key = {")[1]
+
+
+async def test_reset_supabase_connect_section_reenables_the_validate_button():
+    """supabase-key-submit is disabled by every validateSupabaseKey() attempt
+    and only re-enabled by that same function's own success/failure
+    branches. Any other path that lands back on supabase-connect-section
+    (zero orgs, unauthorized/no_session, INIT_FAILED, a lock/unlock cycle)
+    goes through resetSupabaseConnectSection(), which must also re-enable
+    this button -- otherwise the visitor is stuck on the reconnect screen
+    with no usable button at all."""
+    client = await _client()
+    body = (await client.get("/")).text
+    reset_fn_start = body.index("function resetSupabaseConnectSection")
+    reset_fn_body = body[reset_fn_start : body.index("function supabaseError(key)")]
+    assert 'document.getElementById("supabase-key-submit").disabled = false;' in reset_fn_body
+    assert 'document.getElementById("supabase-org-submit").disabled = false;' in reset_fn_body
+
+
+async def test_project_creation_rejected_stays_on_org_section():
+    """A rejected create-project call (e.g. a duplicate project name, or a
+    plan-level project cap) is recoverable without re-entering the access
+    token -- the org/name section must stay on screen so the visitor can
+    retry with a different name or org, not be forced back to
+    "Connect Supabase" with no way to re-enable its Validate button."""
+    client = await _client()
+    body = (await client.get("/")).text
+
+    reason_fn_start = body.index("function supabaseErrorForReason")
+    reason_fn_body = body[reason_fn_start : body.index("async function callSupabaseRelay")]
+
+    rejected_branch = reason_fn_body[
+        : reason_fn_body.index('if (reason === "unauthorized" || reason === "no_session")')
+    ]
+    assert "resetSupabaseConnectSection()" not in rejected_branch
+    assert 'document.getElementById("supabase-error").textContent = message;' in rejected_branch
 
 
 async def test_org_section_shown_after_key_validation_opens_the_frame_and_updates_its_badge():
