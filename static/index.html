@@ -1519,6 +1519,17 @@
     if (currentGithubAppErrorKey) {
       document.getElementById("github-app-error").textContent = t(currentGithubAppErrorKey);
     }
+    // The permissions table's ACCESS_LABELS and the checklist's event/
+    // installation/webhook labels are baked into DOM text at render time
+    // (not [data-i18n], since they're built dynamically) -- re-render both
+    // so they don't stay stuck in the old language, same as every other
+    // dynamic string handled above. Safe to call unconditionally: it only
+    // rewrites read-only display fields and the permissions table, never
+    // the visitor's own app-id/file-picker input.
+    renderGithubAppInstructions();
+    if (lastGithubAppChecklistBody) {
+      renderGithubAppChecklist(lastGithubAppChecklistBody);
+    }
     if (currentSupabaseErrorKey) {
       document.getElementById("supabase-error").textContent = t(currentSupabaseErrorKey);
     }
@@ -1598,6 +1609,11 @@
 
   let currentRenderKeyErrorKey = null;
   let currentGithubAppErrorKey = null;
+  // The last validate-app response the checklist was rendered from -- kept
+  // so applyLanguage() can re-render it in the new language, same as every
+  // other dynamic string on the page. Cleared whenever the checklist itself
+  // is cleared (a fresh validate attempt, or "Change").
+  let lastGithubAppChecklistBody = null;
   let currentSupabaseErrorKey = null;
   let currentDashboardAuthErrorKey = null;
   let dashboardAuthPasswordVisible = false;
@@ -2599,6 +2615,7 @@
     resetFileFieldName("github-app-key-file-name");
     document.getElementById("github-app-validate-submit").disabled = false;
     currentGithubAppErrorKey = null;
+    lastGithubAppChecklistBody = null;
   }
 
   function githubAppError(key) {
@@ -2653,6 +2670,7 @@
     document.getElementById("github-app-error").textContent = "";
     currentGithubAppErrorKey = null;
     document.getElementById("github-app-checklist").innerHTML = "";
+    lastGithubAppChecklistBody = null;
     const renderService = readStoredRenderService();
     if (!renderService || !renderService.service_url) {
       githubAppError("err_github_no_render_service");
@@ -2730,6 +2748,7 @@
   }
 
   function renderGithubAppChecklist(body) {
+    lastGithubAppChecklistBody = body;
     const list = document.getElementById("github-app-checklist");
     list.innerHTML = "";
     const addRow = (label, ok) => {
@@ -3623,11 +3642,90 @@
     document.querySelectorAll(".popup-backdrop").forEach((el) => el.classList.remove("open"));
   }
 
+  // Enter-to-advance / Enter-to-submit: within whichever section of a frame
+  // is currently visible, pressing Enter in any field but the last one
+  // moves focus to the next field; pressing Enter in the last one triggers
+  // the same action a click on the frame's current primary button would.
+  // Visually-hidden file inputs (the custom .file-field control) are
+  // deliberately left out of every list below -- a focused file input
+  // already has its own native Enter behavior (opens the file picker),
+  // which this must not interfere with.
+  const FRAME_ENTER_CONFIG = {
+    "render-key": {
+      fields: () => ["render-key-input"],
+      button: () => "render-key-submit",
+    },
+    "render-service": {
+      fields: () => ["render-service-repo-input", "render-service-name-input"],
+      button: () => "render-service-submit",
+    },
+    "dashboard-auth": {
+      fields: () => [
+        "dashboard-auth-username-input",
+        "dashboard-auth-password-input",
+        "dashboard-auth-ack-checkbox",
+      ],
+      button: () => "dashboard-auth-submit",
+    },
+    "github-app": {
+      fields: () => ["github-app-id-input"],
+      button: () => "github-app-validate-submit",
+    },
+    "supabase": {
+      fields: () => (
+        document.getElementById("supabase-org-section").style.display !== "none"
+          ? ["supabase-org-select", "supabase-project-name-input"]
+          : ["supabase-key-input"]
+      ),
+      button: () => (
+        document.getElementById("supabase-org-section").style.display !== "none"
+          ? "supabase-org-submit"
+          : "supabase-key-submit"
+      ),
+    },
+    "llm-provider": {
+      fields: () => {
+        if (document.getElementById("llm-provider-model-section").style.display !== "none") {
+          return ["llm-provider-model-select"];
+        }
+        const provider = getSelectedLlmProvider();
+        // Vertex's credential is file-only -- no text field to press Enter in.
+        return provider === "gemini" || provider === "groq" ? ["llm-provider-api-key-input"] : [];
+      },
+      button: () => (
+        document.getElementById("llm-provider-model-section").style.display !== "none"
+          ? "llm-provider-continue-submit"
+          : "llm-provider-validate-submit"
+      ),
+    },
+    "uptime-pinger": {
+      fields: () => ["uptime-pinger-api-key-input"],
+      button: () => "uptime-pinger-submit",
+    },
+  };
+
+  function handleFrameEnterKey(event) {
+    if (event.key !== "Enter") return;
+    const target = event.target;
+    const frame = target.closest("details.frame");
+    if (!frame) return;
+    const config = FRAME_ENTER_CONFIG[frame.id.replace(/^frame-/, "")];
+    if (!config) return;
+    const fields = config.fields();
+    const idx = fields.indexOf(target.id);
+    if (idx === -1) return;
+    event.preventDefault();
+    if (idx < fields.length - 1) {
+      document.getElementById(fields[idx + 1]).focus();
+      return;
+    }
+    const btn = document.getElementById(config.button());
+    if (btn && !btn.disabled) btn.click();
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("render-key-submit").addEventListener("click", validateRenderKey);
-    document.getElementById("render-key-input").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") validateRenderKey();
-    });
+    document.addEventListener("keydown", handleFrameEnterKey);
     document.getElementById("render-service-submit").addEventListener("click", createRenderService);
     document.getElementById("dashboard-auth-submit").addEventListener("click", submitDashboardAuth);
     document.getElementById("dashboard-auth-generate-submit").addEventListener("click", fillGeneratedDashboardAuthPassword);

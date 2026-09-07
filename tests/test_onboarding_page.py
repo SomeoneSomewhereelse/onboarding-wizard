@@ -112,13 +112,36 @@ async def test_validate_render_key_rejects_an_empty_key_client_side():
 
 async def test_render_key_input_submits_on_enter():
     """A mobile on-screen keyboard's "Go"/Enter key must submit the key --
-    only a click on the button used to work."""
+    only a click on the button used to work. Handled generically now by
+    handleFrameEnterKey()/FRAME_ENTER_CONFIG, wired via a single delegated
+    keydown listener rather than one per input."""
     client = await _client()
     body = (await client.get("/")).text
-    assert (
-        'document.getElementById("render-key-input").addEventListener("keydown"'
-        in body
-    )
+    assert 'document.addEventListener("keydown", handleFrameEnterKey)' in body
+    assert 'const FRAME_ENTER_CONFIG = {' in body
+    assert '"render-key": {' in body
+
+
+async def test_frame_enter_config_advances_focus_or_submits_per_frame():
+    """Every frame with at least one text/select field must be represented
+    in FRAME_ENTER_CONFIG so Enter both advances focus between its fields
+    and submits from the last one -- not just render-key's single-field
+    case."""
+    client = await _client()
+    body = (await client.get("/")).text
+    config_start = body.index("const FRAME_ENTER_CONFIG = {")
+    config_body = body[config_start : body.index("function handleFrameEnterKey")]
+    for frame_id in [
+        "render-key", "render-service", "dashboard-auth", "github-app",
+        "supabase", "llm-provider", "uptime-pinger",
+    ]:
+        assert f'"{frame_id}": {{' in config_body
+
+    handler_start = body.index("function handleFrameEnterKey")
+    handler_body = body[handler_start : body.index('document.addEventListener("DOMContentLoaded"')]
+    assert "event.preventDefault();" in handler_body
+    assert "document.getElementById(fields[idx + 1]).focus();" in handler_body
+    assert "if (btn && !btn.disabled) btn.click();" in handler_body
 
 
 async def test_completing_a_frame_unlocks_the_next_one():
@@ -1067,6 +1090,33 @@ async def test_password_toggle_label_is_translated_via_aria_not_text():
     # applyLanguage must re-resolve it rather than leaving a stale label.
     apply_body = body[body.index("function applyLanguage") : body.index("function frameEl")]
     assert "setDashboardAuthPasswordVisibility(dashboardAuthPasswordVisible);" in apply_body
+
+
+async def test_github_app_checklist_and_permissions_table_follow_language_switch():
+    """Both are built dynamically (not [data-i18n]) from t()-resolved
+    strings baked into DOM text at render time -- applyLanguage() must
+    re-invoke both renderers, same as every other dynamic string on the
+    page, or a visitor who switches language after validating the App is
+    left with a checklist/table stuck in the old language."""
+    client = await _client()
+    body = (await client.get("/")).text
+    apply_body = body[body.index("function applyLanguage") : body.index("function frameEl")]
+    assert "renderGithubAppInstructions();" in apply_body
+    assert "if (lastGithubAppChecklistBody) {" in apply_body
+    assert "renderGithubAppChecklist(lastGithubAppChecklistBody);" in apply_body
+
+    # lastGithubAppChecklistBody must be set on render and cleared on reset,
+    # not just referenced by applyLanguage -- otherwise a stale success body
+    # from a previous account would resurface after a language switch that
+    # follows a "Change".
+    checklist_fn = body[
+        body.index("function renderGithubAppChecklist") : body.index("function base64UrlEncode")
+    ]
+    assert "lastGithubAppChecklistBody = body;" in checklist_fn
+    reset_fn = body[
+        body.index("function resetGithubAppSetupSection") : body.index("function githubAppError")
+    ]
+    assert "lastGithubAppChecklistBody = null;" in reset_fn
 
 
 async def test_dashboard_auth_ack_checkbox_sits_below_both_buttons():
