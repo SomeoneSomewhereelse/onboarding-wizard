@@ -1656,44 +1656,52 @@
   function lockFrame(id) {
     const el = frameEl(id);
     el.dataset.locked = "true";
-    el.open = false;
     setFrameStatus(id, "locked");
-    const key = STORAGE_KEYS[id];
-    if (key) sessionStorage.removeItem(key);
-    // Frame 2's create/install sections are a one-way toggle otherwise: the
-    // storage clear above would leave "Install App" on screen with nothing
-    // behind it, and clicking it would report a misleading GitHub error.
-    // Frame 3's connect/org-picker/provisioning sections are the same
-    // shape, one step longer.
-    if (id === "dashboard-auth") resetDashboardAuthSection();
-    if (id === "github-app") resetGithubAppSetupSection();
-    if (id === "supabase") resetSupabaseConnectSection();
-    if (id === "llm-provider") resetLlmProviderSection();
-    if (id === "uptime-pinger") resetUptimePingerSection();
-    if (id === "render-deploy") {
-      resetRenderDeploySection();
-      // deployed/pending_deploy_id live inside render-service's own storage
-      // blob (see finishRenderDeploy/triggerRenderDeploy), not a
-      // "render-deploy" key of their own -- STORAGE_KEYS has no entry for
-      // this frame, so the generic removeItem above never touches them.
-      // Without this, a reload after locking this frame (e.g. right after
-      // changing llm-provider, before redeploying) would have
-      // restoreFromSession() resurrect the OLD deploy's live-URL/polling
-      // state from the still-present flags, even though a fresh redeploy is
-      // actually required. service_id/service_url are left alone -- they're
-      // still valid; only render-service's own lockFrame call (a separate,
-      // rarer case) should ever clear those.
-      const renderServiceState = readStoredRenderService();
-      if (renderServiceState) {
-        delete renderServiceState.deployed;
-        delete renderServiceState.pending_deploy_id;
-        sessionStorage.setItem(STORAGE_KEYS["render-service"], JSON.stringify(renderServiceState));
+    // Closed via the same animated hinge a header click uses (not a raw
+    // `el.open = false`, which would skip it -- see closeFrameAnimated's
+    // own comment). The section resets below touch visible form content
+    // inside the frame body, so they wait for the collapse to actually
+    // finish rather than running while it's still visibly mid-animation;
+    // this is why they're threaded through as a callback instead of
+    // running immediately the way they used to.
+    closeFrameAnimated(id, () => {
+      const key = STORAGE_KEYS[id];
+      if (key) sessionStorage.removeItem(key);
+      // Frame 2's create/install sections are a one-way toggle otherwise: the
+      // storage clear above would leave "Install App" on screen with nothing
+      // behind it, and clicking it would report a misleading GitHub error.
+      // Frame 3's connect/org-picker/provisioning sections are the same
+      // shape, one step longer.
+      if (id === "dashboard-auth") resetDashboardAuthSection();
+      if (id === "github-app") resetGithubAppSetupSection();
+      if (id === "supabase") resetSupabaseConnectSection();
+      if (id === "llm-provider") resetLlmProviderSection();
+      if (id === "uptime-pinger") resetUptimePingerSection();
+      if (id === "render-deploy") {
+        resetRenderDeploySection();
+        // deployed/pending_deploy_id live inside render-service's own storage
+        // blob (see finishRenderDeploy/triggerRenderDeploy), not a
+        // "render-deploy" key of their own -- STORAGE_KEYS has no entry for
+        // this frame, so the generic removeItem above never touches them.
+        // Without this, a reload after locking this frame (e.g. right after
+        // changing llm-provider, before redeploying) would have
+        // restoreFromSession() resurrect the OLD deploy's live-URL/polling
+        // state from the still-present flags, even though a fresh redeploy is
+        // actually required. service_id/service_url are left alone -- they're
+        // still valid; only render-service's own lockFrame call (a separate,
+        // rarer case) should ever clear those.
+        const renderServiceState = readStoredRenderService();
+        if (renderServiceState) {
+          delete renderServiceState.deployed;
+          delete renderServiceState.pending_deploy_id;
+          sessionStorage.setItem(STORAGE_KEYS["render-service"], JSON.stringify(renderServiceState));
+        }
       }
-    }
-    if (id === "render-service") {
-      sessionStorage.removeItem(RENDER_SERVICE_URL_KEY);
-      document.getElementById("render-service-submit").disabled = false;
-    }
+      if (id === "render-service") {
+        sessionStorage.removeItem(RENDER_SERVICE_URL_KEY);
+        document.getElementById("render-service-submit").disabled = false;
+      }
+    });
   }
 
   function unlockFrame(id) {
@@ -1781,7 +1789,7 @@
   function completeFrame(id, detailKey, detailValue, status, keepOpen) {
     const el = frameEl(id);
     el.dataset.locked = "true";
-    if (!keepOpen) el.open = false;
+    if (!keepOpen) closeFrameAnimated(id);
     setFrameStatus(id, status || "done", detailKey, detailValue);
     // Only unlock the next positional frame if it's genuinely blocked
     // ("locked" -- never yet reached, or relocked by this redo). On a redo,
@@ -3280,6 +3288,24 @@
   //    once finished, so a later animation on the same element must
   //    explicitly cancel it first, or repeated open/close toggling piles
   //    up conflicting held animations instead of replacing the old one.
+  // Populated per frame id by wireFrameHingeAnimations() below; lets code
+  // elsewhere (completeFrame) trigger the same animated collapse a header
+  // click does, instead of setting `el.open = false` directly -- a direct
+  // set bypasses both the click handler and the animation entirely, since
+  // neither is a real toggle-via-click. closeFrameAnimated() is the one
+  // correct way to close a frame from anywhere in this file.
+  const frameHingeControllers = {};
+  function closeFrameAnimated(id, onDone) {
+    const controller = frameHingeControllers[id];
+    if (controller) {
+      controller.close(onDone);
+    } else {
+      // Not wired (reduced motion, or pre-init) -- instant fallback.
+      frameEl(id).open = false;
+      if (onDone) onDone();
+    }
+  }
+
   function wireFrameHingeAnimations() {
     const HINGE_DURATION = 600;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -3289,6 +3315,7 @@
       const summary = el.querySelector(":scope > summary");
       const body = el.querySelector(":scope > .frame-body");
       if (!summary || !body) return;
+      const frameId = el.id.replace(/^frame-/, "");
 
       const cs = getComputedStyle(body);
       const fullPadBottom = cs.paddingBottom;
@@ -3315,24 +3342,34 @@
 
       let animating = false;
 
+      function animatedClose(onDone) {
+        if (!el.open || animating) {
+          if (onDone) onDone(); // already closed (or mid-toggle) -- nothing to animate
+          return;
+        }
+        // Closing: measure the current height while still open, then
+        // animate height/padding/border and transform/opacity down
+        // together, and only remove `open` once that finishes.
+        animating = true;
+        const currentHeight = body.scrollHeight;
+        body.style.overflow = "hidden";
+        playHinge([...hingeFrames(currentHeight)].reverse(), () => {
+          el.open = false;
+          body.style.overflow = "";
+          body.style.height = "";
+          body.style.paddingBottom = "";
+          body.style.borderTopWidth = "";
+          animating = false;
+          if (onDone) onDone();
+        });
+      }
+      frameHingeControllers[frameId] = {close: animatedClose};
+
       summary.addEventListener("click", (event) => {
         if (el.dataset.locked === "true") return; // guardLockedFrames handles this
         if (el.open && !animating) {
-          // Closing: measure the current height while still open, then
-          // animate height/padding/border and transform/opacity down
-          // together, and only remove `open` once that finishes.
           event.preventDefault();
-          animating = true;
-          const currentHeight = body.scrollHeight;
-          body.style.overflow = "hidden";
-          playHinge([...hingeFrames(currentHeight)].reverse(), () => {
-            el.open = false;
-            body.style.overflow = "";
-            body.style.height = "";
-            body.style.paddingBottom = "";
-            body.style.borderTopWidth = "";
-            animating = false;
-          });
+          animatedClose();
         }
         // Opening falls through to the native toggle; handled below.
       });

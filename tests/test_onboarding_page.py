@@ -1143,7 +1143,7 @@ async def test_render_deploy_frame_stays_open_when_done():
     assert 'completeFrame("render-deploy", null, null, "deploy_done", true)' in body
     # completeFrame's default (every other frame) must remain collapse-on-complete.
     assert "function completeFrame(id, detailKey, detailValue, status, keepOpen)" in body
-    assert "if (!keepOpen) el.open = false;" in body
+    assert "if (!keepOpen) closeFrameAnimated(id);" in body
 
 
 async def test_check_again_button_disables_itself_while_in_flight():
