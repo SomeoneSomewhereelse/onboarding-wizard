@@ -1714,6 +1714,22 @@
       // network failure here just means a stale session row lingers
       // server-side until its TTL expires.
     }
+    // location.reload() alone leaves sessionStorage untouched (it survives
+    // a same-tab reload by design) -- a prior run's leftover
+    // render-service blob (in particular `pending_deploy_id`/`deployed`,
+    // written once a deploy is triggered/finishes) would otherwise survive
+    // into the fresh session. restoreFromSession() reads that blob
+    // directly (deploy progress isn't part of GET /api/session) and would
+    // start polling a deploy that no longer has any matching server-side
+    // record, poisoning the still-locked render-deploy frame's status to
+    // "error" before the visitor has redone a single frame -- see
+    // ISSUES.md's 2026-09-07 "Start over doesn't clear sessionStorage"
+    // entry. Only sessionStorage is cleared here, never localStorage --
+    // the theme/language preference there is a real per-visitor setting
+    // that should survive a wizard reset, unlike anything under
+    // STORAGE_KEYS/RENDER_SERVICE_URL_KEY.
+    Object.values(STORAGE_KEYS).forEach((key) => sessionStorage.removeItem(key));
+    sessionStorage.removeItem(RENDER_SERVICE_URL_KEY);
     location.reload();
   }
 

@@ -1413,3 +1413,29 @@ async def test_webhook_patch_flow_is_fully_removed():
         "err_github_webhook_unreachable",
     ):
         assert gone not in body, f"{gone} survived the webhook-patch removal"
+
+
+async def test_reset_wizard_clears_session_storage_before_reloading():
+    """resetWizard() ("Start over") deletes the server-side session but a
+    plain location.reload() alone leaves sessionStorage untouched -- a
+    prior run's leftover render-service blob (in particular
+    `pending_deploy_id`, written once a deploy is triggered) would survive
+    into the fresh session. restoreFromSession() reads that blob directly
+    (deploy progress isn't part of GET /api/session) and would start
+    polling a deploy with no matching server-side record, poisoning the
+    still-locked render-deploy frame's status to "error" before the
+    visitor has redone a single frame. Every STORAGE_KEYS entry and
+    RENDER_SERVICE_URL_KEY must be cleared before the reload."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("async function resetWizard")
+    fn_body = body[fn_start : body.index("function lockFrame")]
+    assert (
+        "Object.values(STORAGE_KEYS).forEach((key) => sessionStorage.removeItem(key));"
+        in fn_body
+    )
+    assert "sessionStorage.removeItem(RENDER_SERVICE_URL_KEY);" in fn_body
+    # Order matters: both clears must happen before the reload, not after.
+    assert fn_body.index("sessionStorage.removeItem(RENDER_SERVICE_URL_KEY)") < fn_body.index(
+        "location.reload();"
+    )
