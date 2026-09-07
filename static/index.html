@@ -1948,19 +1948,23 @@
       llmProviderError("err_llm_no_models_available");
       return;
     }
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = t("frame4_model_placeholder");
-    placeholder.disabled = true;
-    placeholder.selected = true;
-    select.appendChild(placeholder);
-    models.forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m;
-      select.appendChild(opt);
+    // Revealing the whole model-picker section grows the frame's content
+    // height same as the GitHub App checklist does -- same fix applies.
+    growFrameToFit("llm-provider", () => {
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = t("frame4_model_placeholder");
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+      models.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        select.appendChild(opt);
+      });
+      document.getElementById("llm-provider-model-section").style.display = "block";
     });
-    document.getElementById("llm-provider-model-section").style.display = "block";
     pendingLlmProviderCredential = {
       provider,
       ...credentialFragment,
@@ -2640,7 +2644,7 @@
       }
       return;
     }
-    renderGithubAppChecklist(body);
+    growFrameToFit("github-app", () => renderGithubAppChecklist(body));
     if (!body.all_ok) {
       setFrameStatus("github-app", "error");
       return;
@@ -2801,15 +2805,19 @@
       supabaseError("err_supabase_no_organizations");
       return;
     }
-    const select = document.getElementById("supabase-org-select");
-    select.innerHTML = "";
-    body.orgs.forEach((org) => {
-      const option = document.createElement("option");
-      option.value = org.slug;
-      option.textContent = org.name;
-      select.appendChild(option);
+    // Revealing the org picker + name field grows the frame's content
+    // height same as the GitHub App checklist does -- same fix applies.
+    growFrameToFit("supabase", () => {
+      const select = document.getElementById("supabase-org-select");
+      select.innerHTML = "";
+      body.orgs.forEach((org) => {
+        const option = document.createElement("option");
+        option.value = org.slug;
+        option.textContent = org.name;
+        select.appendChild(option);
+      });
+      showSupabaseOrgSection();
     });
-    showSupabaseOrgSection();
   }
 
   function showSupabaseOrgSection() {
@@ -2863,10 +2871,16 @@
   }
 
   function showSupabaseProvisioning() {
-    document.getElementById("supabase-connect-section").style.display = "none";
-    document.getElementById("supabase-org-section").style.display = "none";
-    document.getElementById("supabase-provisioning-section").style.display = "block";
-    frameEl("supabase").open = true;
+    // Swapping the org-picker section for the (shorter) provisioning
+    // status section resizes the frame same as the checklist reveal does
+    // -- same fix applies, this time usually shrinking rather than
+    // growing (growFrameToFit animates either direction).
+    growFrameToFit("supabase", () => {
+      document.getElementById("supabase-connect-section").style.display = "none";
+      document.getElementById("supabase-org-section").style.display = "none";
+      document.getElementById("supabase-provisioning-section").style.display = "block";
+      frameEl("supabase").open = true;
+    });
     setFrameStatus("supabase", "provisioning");
   }
 
@@ -2979,11 +2993,16 @@
 
   function finishRenderDeploy() {
     const stored = readStoredRenderService();
-    document.getElementById("render-deploy-polling-section").style.display = "none";
-    document.getElementById("render-deploy-done-section").style.display = "block";
-    const link = document.getElementById("render-deploy-service-link");
-    link.href = stored ? stored.service_url : "";
-    link.textContent = stored ? stored.service_url : "";
+    // The final payoff of the whole wizard (the dashboard link) -- this
+    // frame stays open afterward, so an unanimated snap here would be the
+    // most visible instance of the same issue the checklist had.
+    growFrameToFit("render-deploy", () => {
+      document.getElementById("render-deploy-polling-section").style.display = "none";
+      document.getElementById("render-deploy-done-section").style.display = "block";
+      const link = document.getElementById("render-deploy-service-link");
+      link.href = stored ? stored.service_url : "";
+      link.textContent = stored ? stored.service_url : "";
+    });
     if (stored) {
       stored.deployed = true;
       sessionStorage.setItem(STORAGE_KEYS["render-service"], JSON.stringify(stored));
@@ -2997,8 +3016,10 @@
   }
 
   function showRenderDeployTriggerAgain() {
-    document.getElementById("render-deploy-polling-section").style.display = "none";
-    document.getElementById("render-deploy-trigger-section").style.display = "block";
+    growFrameToFit("render-deploy", () => {
+      document.getElementById("render-deploy-polling-section").style.display = "none";
+      document.getElementById("render-deploy-trigger-section").style.display = "block";
+    });
     document.getElementById("render-deploy-trigger-submit").disabled = false;
   }
 
@@ -3115,8 +3136,10 @@
     }
     stored.pending_deploy_id = body.deploy_id;
     sessionStorage.setItem(STORAGE_KEYS["render-service"], JSON.stringify(stored));
-    document.getElementById("render-deploy-trigger-section").style.display = "none";
-    document.getElementById("render-deploy-polling-section").style.display = "block";
+    growFrameToFit("render-deploy", () => {
+      document.getElementById("render-deploy-trigger-section").style.display = "none";
+      document.getElementById("render-deploy-polling-section").style.display = "block";
+    });
     setFrameStatus("render-deploy", "deploying");
     pollRenderDeployStatus(Date.now(), renderDeployPollGeneration);
   }
@@ -3306,6 +3329,22 @@
     }
   }
 
+  // Wrap a DOM mutation that changes an already-open frame's content
+  // height (a validation result, a dynamically-populated list, ...) so
+  // the frame resizes with the same hinge motion open/close use, instead
+  // of an instant snap or, before the cancel() fix in
+  // wireFrameHingeAnimations, overflowing past a height a finished
+  // animation was still holding. `mutateFn` must be passed in rather than
+  // already applied -- the old size has to be pinned before the mutation
+  // happens, or the browser's own reflow beats the animation to it (see
+  // growToFit's own comment). Falls back to just running `mutateFn`
+  // unanimated if the frame isn't open or isn't wired (reduced motion).
+  function growFrameToFit(id, mutateFn) {
+    const controller = frameHingeControllers[id];
+    if (controller && controller.grow) controller.grow(mutateFn);
+    else mutateFn();
+  }
+
   function wireFrameHingeAnimations() {
     const HINGE_DURATION = 600;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -3333,9 +3372,22 @@
       let currentAnim = null;
       function playHinge(keyframes, onfinish) {
         if (currentAnim) currentAnim.cancel();
-        currentAnim = body.animate(keyframes, {duration: HINGE_DURATION, easing: "ease", fill: "forwards"});
-        currentAnim.onfinish = () => {
-          currentAnim = null;
+        const anim = body.animate(keyframes, {duration: HINGE_DURATION, easing: "ease", fill: "forwards"});
+        currentAnim = anim;
+        anim.onfinish = () => {
+          // A fill:"forwards" animation stays resident and keeps forcing
+          // its final keyframe values (height, transform, opacity, ...)
+          // even after it finishes -- cancel() releases that held effect
+          // back to the normal CSS cascade (the inline style resets below
+          // clear the box back to natural auto-height layout). Without
+          // this, the frame's rendered height stays pinned at whatever it
+          // was the moment it finished opening, so content added later
+          // (e.g. the GitHub App checklist after a failed validation)
+          // overflows past the box instead of growing it -- scrollHeight
+          // reports the true larger size the whole time, only the
+          // rendered box stays stuck.
+          anim.cancel();
+          if (currentAnim === anim) currentAnim = null;
           onfinish();
         };
       }
@@ -3363,7 +3415,43 @@
           if (onDone) onDone();
         });
       }
-      frameHingeControllers[frameId] = {close: animatedClose};
+      // Grows (or shrinks) an already-open frame around a DOM mutation
+      // that changes its content height -- e.g. the GitHub App checklist
+      // appearing once a validation call resolves. `mutateFn` must be the
+      // thing that actually changes the content: with no inline height
+      // constraint at rest (the steady state after open/close settle),
+      // the browser reflows the box to the new content size the INSTANT
+      // it's mutated, before any JS after that point gets to run -- so
+      // the old size has to be pinned *before* the mutation, not measured
+      // after it, or there's nothing left to animate from (confirmed live:
+      // calling this after the mutation just snapped, no visible tween).
+      function growToFit(mutateFn) {
+        if (!el.open || animating) { mutateFn(); return; }
+        const oldHeight = body.getBoundingClientRect().height;
+        body.style.overflow = "hidden";
+        body.style.height = oldHeight + "px";
+        mutateFn();
+        // scrollHeight still reports the true full content size even
+        // while overflow is clipped and height is pinned.
+        const newHeight = body.scrollHeight;
+        if (Math.abs(newHeight - oldHeight) < 1) {
+          body.style.overflow = "";
+          body.style.height = "";
+          return;
+        }
+        animating = true;
+        const steadyState = (h) => ({
+          height: h + "px", paddingBottom: fullPadBottom, borderTopWidth: fullBorderTop,
+          transform: "perspective(700px) rotateX(0deg) translateY(0)", opacity: 1,
+        });
+        playHinge([steadyState(oldHeight), steadyState(newHeight)], () => {
+          body.style.overflow = "";
+          body.style.height = "";
+          animating = false;
+        });
+      }
+
+      frameHingeControllers[frameId] = {close: animatedClose, grow: growToFit};
 
       summary.addEventListener("click", (event) => {
         if (el.dataset.locked === "true") return; // guardLockedFrames handles this
