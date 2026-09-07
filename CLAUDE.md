@@ -632,11 +632,13 @@ optional:**
   `LLM_REQUEST_TIMEOUT_SECONDS`). Unconditional, not gated on any frame:
   these are hardcoded operational defaults, kept in sync by hand with the
   sibling review-engine project's own config (`~/pr-review-bot`) — nothing
-  automated ties the two together. `GITHUB_TARGET_REPO` and `GCP_PROJECT`
-  are deliberately excluded rather than pushed as `""` — Render's API
-  rejects an empty env-var value outright, and both default genuinely
-  blank — same reasoning the sibling project's own deploy script already
-  encodes for its optional-empty env keys. Keep this dict in sync with the
+  automated ties the two together. `GCP_PROJECT` is deliberately excluded
+  rather than pushed as `""` — Render's API rejects an empty env-var value
+  outright, and it defaults genuinely blank on that project — same
+  reasoning the sibling project's own deploy script already encodes for
+  its optional-empty env keys. `GITHUB_TARGET_REPO` used to be excluded for
+  the same reason but is now pushed as `"*"` (2026-09-07) — see the
+  dedicated bullet below for why. Keep this dict in sync with the
   sibling project's config by hand.
 - **The final `render-deploy` frame stays open (doesn't collapse) once
   done** (2026-09-02) — `completeFrame()` grew a 5th, optional `keepOpen`
@@ -699,12 +701,25 @@ optional:**
   name instead of the response's slug would silently point
   `onboarding.renderServiceUrl` (frame 5's forward contract) at a URL
   that doesn't exist.
-- **`GITHUB_TARGET_REPO`, `GCP_PROJECT`, and `GCP_LOCATION` are
-  deliberately never pushed** — track-all mode and this project's own
-  matching defaults (the sibling review-engine project's own `gcp_location`
-  default already equals `llm_client.py`'s fixed
-  `_VERTEX_LOCATION` constant, verified) make an explicit push redundant.
-  Do not add them without a concrete reason a default has drifted.
+- **`GCP_PROJECT` is deliberately never pushed** — this project's own
+  matching default (blank, same as the sibling review-engine project's own)
+  makes an explicit push redundant, and Render rejects an empty value
+  outright. `GCP_LOCATION` **is** pushed (`_GENERIC_OPERATIONAL_ENV_DEFAULTS`
+  above) — the sibling project's own `gcp_location` default already equals
+  `llm_client.py`'s fixed `_VERTEX_LOCATION` constant (verified), so this is
+  belt-and-suspenders, not redundant in the same sense `GCP_PROJECT` is; an
+  earlier version of this note grouped it with the truly-excluded keys by
+  mistake. Do not stop pushing `GCP_LOCATION`, and do not add `GCP_PROJECT`
+  back, without a concrete reason a default has drifted.
+- **`GITHUB_TARGET_REPO` is pushed as `"*"` (2026-09-07), reversing the
+  original "never pushed" decision above.** The sibling review-engine
+  project's `main.py` lifespan now refuses to boot at all without this set
+  explicitly — its own `config.py` names `"*"` the required, operator-set
+  sentinel for "no restriction," replacing the old bare-empty-string
+  default. This wizard has no frame that collects a repo allowlist from the
+  visitor, and every instance it provisions is a track-all install anyway,
+  so pushing `"*"` unconditionally avoids handing the visitor a
+  boot-looping deploy they'd have no way to diagnose.
 - **Deploy status polling keeps its own copy of Render's deploy-status
   buckets in `render_client.py`, matching the sibling review-engine
   project's equivalent sets by hand — no import between the two repos.**

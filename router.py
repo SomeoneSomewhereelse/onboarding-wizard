@@ -176,15 +176,24 @@ _LLM_ENV_VAR_NAMES = {
 # config.py Settings field defaults hardcoded here -- same
 # duplication-not-import pattern as _LLM_ENV_VAR_NAMES above, kept in sync
 # by hand, nothing automated ties the two together. Render's API rejects an
-# empty env-var value outright (ISSUES.md 2026-08-17), so GCP_PROJECT and
-# GITHUB_TARGET_REPO -- the two of these twelve keys whose Settings default
-# is genuinely blank -- are deliberately excluded rather than pushed as "":
-# an operator who wants either set can still do so after the fact (Render
-# dashboard, or that project's deploy.py --sync-env once its config names a
-# repo).
+# empty env-var value outright (ISSUES.md 2026-08-17), so GCP_PROJECT --
+# still genuinely blank by default over there -- is deliberately excluded
+# rather than pushed as "": an operator who wants it set can still do so
+# after the fact (Render dashboard, or that project's deploy.py --sync-env).
+#
+# GITHUB_TARGET_REPO used to be excluded for the same reason (blank
+# default) but that project's main.py lifespan now refuses to boot at all
+# without it explicitly set -- config.py's target_repos() names "*" the
+# required, operator-set sentinel for "no restriction" (see that project's
+# 2026-09-07 config.py change). This wizard has no frame that collects a
+# repo allowlist from the visitor, and every instance it provisions is a
+# track-all install, so "*" is pushed unconditionally here rather than
+# left for the operator to discover the hard way via a boot-looping deploy.
+#
 # Keep these in sync with that project's config.py's actual field defaults
 # by hand -- there is no automated check tying the two together.
 _GENERIC_OPERATIONAL_ENV_DEFAULTS = {
+    "GITHUB_TARGET_REPO": "*",
     "GCP_LOCATION": "us-central1",
     "LLM_REQUEST_TIMEOUT_SECONDS": "45.0",
     "DISPATCHER_IDLE_SLEEP_SECONDS": "1.0",

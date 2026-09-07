@@ -1515,6 +1515,28 @@ async def test_bulk_push_omits_a_frame_that_was_never_completed(monkeypatch):
     }
 
 
+async def test_bulk_push_includes_github_target_repo_wildcard(monkeypatch):
+    """The sibling review-engine project's main.py lifespan now refuses to
+    boot without GITHUB_TARGET_REPO explicitly set (2026-09-07) -- "*" is
+    that project's own required sentinel for track-all mode, which is the
+    only mode this wizard ever provisions (it has no frame collecting a
+    repo allowlist). Pin the literal value so a future edit to
+    _GENERIC_OPERATIONAL_ENV_DEFAULTS can't silently drop or change it."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    captured = {}
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        captured["values"] = values
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
+    assert captured["values"]["GITHUB_TARGET_REPO"] == "*"
+
+
 async def test_bulk_push_with_no_session_fails_closed():
     client = await _client()
     resp = await client.post("/api/render/bulk-push-env-vars")
