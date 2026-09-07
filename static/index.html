@@ -1769,6 +1769,12 @@
       if (id === "uptime-pinger") resetUptimePingerSection();
       if (id === "render-deploy") {
         resetRenderDeploySection();
+        // Cleared here, not just left stale from a previous completion --
+        // guardLockedFrames() would otherwise let this frame be reopened
+        // programmatically while it's genuinely locked-and-not-done (the
+        // defense-in-depth case that flag exists to guard against), since
+        // dataset.stayOpen would still read "true" from before this redo.
+        delete el.dataset.stayOpen;
         // deployed/pending_deploy_id live inside render-service's own storage
         // blob (see finishRenderDeploy/triggerRenderDeploy), not a
         // "render-deploy" key of their own -- STORAGE_KEYS has no entry for
@@ -1902,8 +1908,26 @@
 
   function completeFrame(id, detailKey, detailValue, status, keepOpen) {
     const el = frameEl(id);
+    // keepOpen means "must end up visibly open," not just "skip closing" --
+    // true on the live in-session path (already open, so setting it again
+    // is a no-op), but false on a fresh-reload resume (restoreFromSession(),
+    // a totally new script instance where the frame starts closed per its
+    // raw HTML, same as every other frame). Only render-deploy uses
+    // keepOpen today, and only it has no "Change" button to ever reopen it
+    // again if this were left closed+locked. dataset.stayOpen tells
+    // guardLockedFrames()'s own toggle listener not to slam this frame shut
+    // for being locked -- a native <details>'s "toggle" event fires
+    // asynchronously (queued), not synchronously when `.open` is assigned,
+    // so by the time that listener runs, dataset.locked below is already
+    // "true" regardless of statement order here; stayOpen is what actually
+    // distinguishes this deliberate case from every other locked frame.
+    if (keepOpen) {
+      el.dataset.stayOpen = "true";
+      el.open = true;
+    } else {
+      closeFrameAnimated(id);
+    }
     el.dataset.locked = "true";
-    if (!keepOpen) closeFrameAnimated(id);
     setFrameStatus(id, status || "done", detailKey, detailValue);
     // Only unlock the next positional frame if it's genuinely blocked
     // ("locked" -- never yet reached, or relocked by this redo). On a redo,
@@ -3388,6 +3412,14 @@
     // mirror written just above already carries what it needs.
     const renderServiceState = readStoredRenderService();
     if (renderServiceState && renderServiceState.deployed) {
+      // render-deploy-trigger-section has no `style="display: none"` in its
+      // raw HTML (unlike the polling/done sections) -- the live completion
+      // path (triggerRenderDeploy() -> finishRenderDeploy()) never needs to
+      // hide it here because triggerRenderDeploy() already hid it earlier
+      // in the same script instance. This is a fresh script instance with
+      // none of that history, so it must be hidden explicitly or it shows
+      // the "Deploy" button and the completed link at the same time.
+      document.getElementById("render-deploy-trigger-section").style.display = "none";
       document.getElementById("render-deploy-polling-section").style.display = "none";
       document.getElementById("render-deploy-done-section").style.display = "block";
       const link = document.getElementById("render-deploy-service-link");
@@ -3398,6 +3430,13 @@
     } else if (renderServiceState && renderServiceState.pending_deploy_id) {
       document.getElementById("render-deploy-trigger-section").style.display = "none";
       document.getElementById("render-deploy-polling-section").style.display = "block";
+      // Same gap as the "deployed" branch above, one step earlier: a
+      // visitor who reloads mid-deploy must see this frame genuinely open,
+      // matching the live in-session state (unlocked the moment it was
+      // ever reached, since triggerRenderDeploy() can only ever run against
+      // an already-unlocked frame) -- not collapsed+locked, which is what
+      // this frame starts as per its raw HTML on every fresh script load.
+      unlockFrame("render-deploy");
       setFrameStatus("render-deploy", "deploying");
       pollRenderDeployStatus(Date.now(), renderDeployPollGeneration);
     }
@@ -3415,8 +3454,17 @@
       }
       // Kept as defense-in-depth for any non-click path that can still set
       // `.open` (e.g. programmatic toggling from outside this guard).
+      // dataset.stayOpen is the one deliberate exception: render-deploy
+      // stays locked (no "Change" button) even once done, but must remain
+      // visibly open rather than collapsing like every other completed
+      // frame -- see completeFrame's own keepOpen comment. A native
+      // <details>'s "toggle" event fires asynchronously (queued), not
+      // synchronously at the moment `.open` is assigned, so by the time
+      // this listener runs, dataset.locked is already "true" regardless of
+      // statement order in the caller -- stayOpen is a separate flag for
+      // exactly that reason, not something orderable away.
       el.addEventListener("toggle", () => {
-        if (el.open && el.dataset.locked === "true") {
+        if (el.open && el.dataset.locked === "true" && el.dataset.stayOpen !== "true") {
           el.open = false;
         }
       });

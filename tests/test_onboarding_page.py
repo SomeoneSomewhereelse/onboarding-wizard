@@ -1261,7 +1261,56 @@ async def test_render_deploy_frame_stays_open_when_done():
     assert 'completeFrame("render-deploy", null, null, "deploy_done", true)' in body
     # completeFrame's default (every other frame) must remain collapse-on-complete.
     assert "function completeFrame(id, detailKey, detailValue, status, keepOpen)" in body
-    assert "if (!keepOpen) closeFrameAnimated(id);" in body
+    fn_start = body.index("function completeFrame(id, detailKey, detailValue, status, keepOpen)")
+    fn_body = body[fn_start : body.index("function ", fn_start + 10)]
+    assert "el.dataset.stayOpen = \"true\";" in fn_body
+    assert "el.open = true;" in fn_body
+    assert "closeFrameAnimated(id);" in fn_body
+
+
+async def test_render_deploy_frame_reopens_on_a_fresh_reload_after_completion():
+    """restoreFromSession() runs in a totally new script instance where
+    every frame starts closed+locked per its raw HTML -- keepOpen alone
+    (skipping the close) isn't enough there, since the frame was never
+    open to begin with. Both branches (already deployed, and mid-deploy)
+    must genuinely open the frame, not just skip collapsing it. A native
+    <details>'s "toggle" event fires asynchronously, so
+    guardLockedFrames()'s own toggle listener needs a separate signal
+    (dataset.stayOpen) to know this locked frame is allowed to stay open --
+    reordering statements alone can't fix this, since dataset.locked is
+    already "true" by the time that listener actually runs regardless of
+    where it's set in completeFrame's own source."""
+    client = await _client()
+    body = (await client.get("/")).text
+
+    guard_start = body.index("function guardLockedFrames")
+    guard_body = body[guard_start : body.index("function ", guard_start + 10)]
+    assert 'el.dataset.stayOpen !== "true"' in guard_body
+
+    restore_start = body.index("async function restoreFromSession")
+    restore_body = body[restore_start : body.index("function guardLockedFrames")]
+    deployed_branch = restore_body[
+        restore_body.index("renderServiceState.deployed") :
+        restore_body.index("else if (renderServiceState")
+    ]
+    assert 'completeFrame("render-deploy", null, null, "deploy_done", true);' in deployed_branch
+    # render-deploy-trigger-section has no `style="display: none"` in its
+    # raw HTML (unlike the polling/done sections) -- the live completion
+    # path never needs to hide it here because triggerRenderDeploy() already
+    # did earlier in the same script instance. A fresh reload has none of
+    # that history, so this branch must hide it explicitly or the "Deploy"
+    # button shows alongside the completed link.
+    assert (
+        'document.getElementById("render-deploy-trigger-section").style.display = "none";'
+        in deployed_branch
+    )
+
+    pending_branch = restore_body[restore_body.index("else if (renderServiceState") :]
+    assert 'unlockFrame("render-deploy");' in pending_branch
+
+    lock_start = body.index("function lockFrame(id)")
+    lock_body = body[lock_start : body.index("function unlockFrame")]
+    assert "delete el.dataset.stayOpen;" in lock_body
 
 
 async def test_check_again_button_disables_itself_while_in_flight():
@@ -1290,7 +1339,7 @@ async def test_restoring_a_completed_deploy_shows_the_dashboard_link():
     client = await _client()
     body = (await client.get("/")).text
     fn_start = body.index("renderServiceState && renderServiceState.deployed")
-    fn_snippet = body[fn_start:fn_start + 500]
+    fn_snippet = body[fn_start:fn_start + 1100]
     assert 'getElementById("render-deploy-done-section").style.display = "block"' in fn_snippet
     assert 'getElementById("render-deploy-service-link")' in fn_snippet
     assert "renderServiceState.service_url" in fn_snippet
