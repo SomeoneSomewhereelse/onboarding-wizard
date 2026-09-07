@@ -117,13 +117,18 @@ async def create_service(api_key: str, repo_url: str, name: str) -> RenderServic
     """Create a free-plan Docker web service from repo_url, with every env
     var left blank -- the visitor's later frames fill them in via
     push_env_vars(). Mirrors the sibling review-engine project's own
-    bot/Dockerfile build shape (buildFilter/healthCheckPath match
-    render.yaml's conventions; the dockerfilePath points at bot/Dockerfile
-    specifically, since this project's own render.yaml builds ./Dockerfile
-    instead -- see the 2026-08-29 project-restructure design spec). Never derives the returned
-    URL from `name`: Render may normalize it server-side, and a live call
-    confirmed the create response carries no `service.url` field at all --
-    the URL is built from the response's own `service.slug`.
+    render.yaml build shape (buildFilter/healthCheckPath/dockerfilePath all
+    match render.yaml's own conventions: dockerfilePath is `./Dockerfile`
+    at the sibling repo's root -- see the 2026-09-05 standalone-repo
+    restructure design spec, which flattened that repo's `bot/` directory
+    up to its root and moved the Dockerfile with it. An earlier, now-stale
+    `./bot/Dockerfile` value here (left over from the repo's prior
+    monorepo-era layout, predating that flatten) caused every
+    wizard-created service to fail its build instantly -- see ISSUES.md's
+    2026-09-07 entry. Never derives the returned URL from `name`: Render
+    may normalize it server-side, and a live call confirmed the create
+    response carries no `service.url` field at all -- the URL is built
+    from the response's own `service.slug`.
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -158,7 +163,7 @@ async def create_service(api_key: str, repo_url: str, name: str) -> RenderServic
                         "runtime": "docker",
                         "plan": "free",
                         "healthCheckPath": "/healthz",
-                        "envSpecificDetails": {"dockerfilePath": "./bot/Dockerfile"},
+                        "envSpecificDetails": {"dockerfilePath": "./Dockerfile"},
                     },
                 },
             )

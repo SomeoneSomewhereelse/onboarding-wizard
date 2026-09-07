@@ -4,6 +4,8 @@ unreachable (design doc sections 6 and 8)."""
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import respx
 
@@ -129,6 +131,22 @@ async def test_create_service_returns_id_and_slug_derived_url():
     assert result == render_client.RenderServiceCreated(
         service_id="srv-abc123", service_url="https://pr-review-bot-a1b2c3d4.onrender.com"
     )
+
+
+async def test_create_service_dockerfile_path_matches_sibling_repos_flat_layout():
+    """The sibling review-engine project's own Dockerfile lives at repo
+    root (`./Dockerfile`) since its 2026-09-05 standalone-repo restructure
+    flattened `bot/` up to root. A stale `./bot/Dockerfile` here (left over
+    from that repo's prior monorepo-era layout) made every wizard-created
+    service fail its build instantly -- see ISSUES.md's 2026-09-07 entry."""
+    with respx.mock:
+        respx.get(OWNERS_URL).mock(
+            return_value=httpx.Response(200, json=[{"owner": {"id": "usr-1", "name": "Ada"}}])
+        )
+        route = respx.post(CREATE_URL).mock(return_value=_service_created_response())
+        await render_client.create_service(SENTINEL_KEY, "https://github.com/x/y", "my-name")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["serviceDetails"]["envSpecificDetails"]["dockerfilePath"] == "./Dockerfile"
 
 
 async def test_create_service_ignores_submitted_name_uses_response_slug():
