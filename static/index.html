@@ -216,6 +216,54 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   }
   .popup h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+  /* Native <dialog> (the "Start over" confirm) had no styling at all --
+     pure browser UA defaults, which is why it ignored both themes
+     entirely. Same overlay language as .popup above (surface/border/
+     radius/shadow), same certificate-label button treatment as every
+     other task-action button in the file. */
+  #wizard-reset-confirm-dialog {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 1.25rem 1.5rem;
+    max-width: min(90vw, 360px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    font-family: var(--font-body);
+  }
+  #wizard-reset-confirm-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+  #wizard-reset-confirm-dialog p { margin: 0 0 1.25rem; line-height: 1.5; }
+  #wizard-reset-confirm-dialog button {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 3px;
+    padding: 0.5rem 1.1rem;
+    min-height: 2.5rem;
+    cursor: pointer;
+    margin-inline-end: 0.5rem;
+  }
+  /* The destructive action gets --fail (the same ink-red used for error
+     states elsewhere), not --accent -- this is the one place in the file
+     a button legitimately isn't Control Blue. */
+  #wizard-reset-confirm-yes {
+    background: var(--fail);
+    color: #fff;
+    border: 1px solid color-mix(in srgb, var(--fail) 60%, black);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.22);
+  }
+  #wizard-reset-confirm-yes:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.22),
+      0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent);
+  }
+  #wizard-reset-confirm-no {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  #wizard-reset-confirm-no:hover { border-color: var(--gold); }
   .radio-group { display: flex; flex-direction: column; gap: 0.5rem; }
   .radio-group label {
     display: flex;
