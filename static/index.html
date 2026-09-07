@@ -113,6 +113,16 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
+  /* No <a> rule existed at all before this -- the wizard's one real link
+     (the final frame's deployed-dashboard URL) fell back to the browser's
+     bare default blue/visited-purple, which belongs to no theme here and
+     reads poorly against the dark-mode navy/brown surfaces. --accent is
+     already this system's designated interactive-control color (see the
+     :root comment above); links now actually use it instead of silently
+     opting out of the palette. */
+  a { color: var(--accent); }
+  a:visited { color: var(--accent); }
+  a:hover, a:focus-visible { color: var(--gold); }
   body {
     background: var(--bg);
     color: var(--text);

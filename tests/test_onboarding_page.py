@@ -1456,3 +1456,17 @@ async def test_reset_wizard_clears_session_storage_before_reloading():
     assert fn_body.index("sessionStorage.removeItem(RENDER_SERVICE_URL_KEY)") < fn_body.index(
         "location.reload();"
     )
+
+
+async def test_links_use_the_palette_accent_color_not_browser_defaults():
+    """No `a { }` rule existed at all before this -- the wizard's one real
+    link (the final frame's deployed-dashboard URL) fell back to the
+    browser's bare default blue/visited-purple, which reads poorly (and
+    belongs to no theme) against the dark-mode navy/brown surfaces.
+    --accent is this system's own designated interactive-control color
+    (see the :root comment) -- links must actually use it."""
+    client = await _client()
+    body = (await client.get("/")).text
+    assert "a { color: var(--accent); }" in body
+    assert "a:visited { color: var(--accent); }" in body
+    assert "a:hover, a:focus-visible { color: var(--gold); }" in body
