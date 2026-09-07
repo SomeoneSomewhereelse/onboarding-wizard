@@ -2955,6 +2955,12 @@
     }
     const submitBtn = document.getElementById("supabase-org-submit");
     submitBtn.disabled = true;
+    // create-project's own request IS the provisioning call (Supabase
+    // provisions the project synchronously within it, before the response
+    // ever comes back) -- badging this "provisioning" only once that
+    // request resolves left the header stuck on "Choose an organization"
+    // for the entire round trip, which can take a few seconds.
+    setFrameStatus("supabase", "provisioning");
     const ok = await kickOffProjectCreation(select.value, name);
     if (!ok) submitBtn.disabled = false;
   }

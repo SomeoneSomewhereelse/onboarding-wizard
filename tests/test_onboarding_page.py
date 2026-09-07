@@ -623,6 +623,23 @@ async def test_org_section_shown_after_key_validation_opens_the_frame_and_update
     assert body.count("badge_choosing_org:") == 2  # STRINGS.en + STRINGS.he
 
 
+async def test_confirm_supabase_org_badges_provisioning_before_the_request_not_after():
+    """create-project's own request IS the provisioning call -- Supabase
+    provisions the project synchronously inside it, before the response
+    ever comes back. Badging "provisioning" only once that request
+    resolves (i.e. inside kickOffProjectCreation/showSupabaseProvisioning)
+    left the header stuck on "Choose an organization" for the entire round
+    trip, which can take a few seconds."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("async function confirmSupabaseOrg")
+    fn_body = body[fn_start : body.index("async function kickOffProjectCreation")]
+    assert 'setFrameStatus("supabase", "provisioning");' in fn_body
+    assert fn_body.index('setFrameStatus("supabase", "provisioning");') < fn_body.index(
+        "await kickOffProjectCreation(select.value, name);"
+    )
+
+
 async def test_connection_info_missing_local_state_shows_an_error_not_a_silent_stall():
     """Polling already reported "ready" and stopped by this point -- a bare
     return here used to leave the frame stuck at "Provisioning..." forever
