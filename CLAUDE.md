@@ -588,7 +588,7 @@ optional:**
   name (`service_account_key_b64`)** — the frame maps between them in
   `showLlmProviderModels`'s caller. Keep this distinction if either name
   changes: the wire name matches the relay endpoint's pydantic field, the
-  storage name matches this service's `GCP_SERVICE_ACCOUNT_KEY`-adjacent
+  storage name matches this service's `VERTEX_GCP_SERVICE_ACCOUNT_KEY`-adjacent
   naming convention for sub-project 6 to read later.
 - **`list_vertex_models` validates the submitted service-account JSON's
   `token_uri`/`universe_domain` against Google's real values before ever
@@ -707,11 +707,11 @@ optional:**
 - **The bulk push also always includes `_GENERIC_OPERATIONAL_ENV_DEFAULTS`**
   (2026-09-02) — the sibling review-engine project's own tuning-knob
   operational keys that its deploy script pushes but no wizard frame has a
-  field for (dispatcher backoff/retry/sweep settings, `GCP_LOCATION`,
+  field for (dispatcher backoff/retry/sweep settings, `VERTEX_GCP_LOCATION`,
   `LLM_REQUEST_TIMEOUT_SECONDS`). Unconditional, not gated on any frame:
   these are hardcoded operational defaults, kept in sync by hand with the
   sibling review-engine project's own config (`~/pr-review-bot`) — nothing
-  automated ties the two together. `GCP_PROJECT` is deliberately excluded
+  automated ties the two together. `VERTEX_GCP_PROJECT` is deliberately excluded
   rather than pushed as `""` — Render's API rejects an empty env-var value
   outright, and it defaults genuinely blank on that project — same
   reasoning the sibling project's own deploy script already encodes for
@@ -806,15 +806,15 @@ optional:**
   name instead of the response's slug would silently point
   `onboarding.renderServiceUrl` (frame 5's forward contract) at a URL
   that doesn't exist.
-- **`GCP_PROJECT` is deliberately never pushed** — this project's own
+- **`VERTEX_GCP_PROJECT` is deliberately never pushed** — this project's own
   matching default (blank, same as the sibling review-engine project's own)
   makes an explicit push redundant, and Render rejects an empty value
-  outright. `GCP_LOCATION` **is** pushed (`_GENERIC_OPERATIONAL_ENV_DEFAULTS`
-  above) — the sibling project's own `gcp_location` default already equals
+  outright. `VERTEX_GCP_LOCATION` **is** pushed (`_GENERIC_OPERATIONAL_ENV_DEFAULTS`
+  above) — the sibling project's own `vertex_gcp_location` default already equals
   `llm_client.py`'s fixed `_VERTEX_LOCATION` constant (verified), so this is
-  belt-and-suspenders, not redundant in the same sense `GCP_PROJECT` is; an
+  belt-and-suspenders, not redundant in the same sense `VERTEX_GCP_PROJECT` is; an
   earlier version of this note grouped it with the truly-excluded keys by
-  mistake. Do not stop pushing `GCP_LOCATION`, and do not add `GCP_PROJECT`
+  mistake. Do not stop pushing `VERTEX_GCP_LOCATION`, and do not add `VERTEX_GCP_PROJECT`
   back, without a concrete reason a default has drifted.
 - **`GITHUB_TARGET_REPO` is pushed as `"*"` (2026-09-07), reversing the
   original "never pushed" decision above.** The sibling review-engine
