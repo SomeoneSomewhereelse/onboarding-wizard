@@ -705,20 +705,60 @@ optional:**
   (partial-failure reporting via `_push_result`) is unchanged — only
   *when* it's called moved from per-frame to this one call site.
 - **The bulk push also always includes `_GENERIC_OPERATIONAL_ENV_DEFAULTS`**
-  (2026-09-02) — the sibling review-engine project's own tuning-knob
-  operational keys that its deploy script pushes but no wizard frame has a
-  field for (dispatcher backoff/retry/sweep settings, `VERTEX_GCP_LOCATION`,
-  `LLM_REQUEST_TIMEOUT_SECONDS`). Unconditional, not gated on any frame:
-  these are hardcoded operational defaults, kept in sync by hand with the
-  sibling review-engine project's own config (`~/pr-review-bot`) — nothing
-  automated ties the two together. `VERTEX_GCP_PROJECT` is deliberately excluded
-  rather than pushed as `""` — Render's API rejects an empty env-var value
-  outright, and it defaults genuinely blank on that project — same
-  reasoning the sibling project's own deploy script already encodes for
-  its optional-empty env keys. `GITHUB_TARGET_REPO` used to be excluded for
-  the same reason but is now pushed as `"*"` (2026-09-07) — see the
-  dedicated bullet below for why. Keep this dict in sync with the
-  sibling project's config by hand.
+  — as of 2026-09-08 (see the dedicated slot_config bullet below) this is
+  down to just `GITHUB_TARGET_REPO`. It used to also carry the sibling
+  review-engine project's dispatcher/timeout tuning knobs plus
+  `VERTEX_GCP_LOCATION`; all of those are now DB-only over there (no Render
+  env var at all) and are dropped from this dict entirely rather than
+  pushed as `""` — the 9 dispatcher knobs get a real value from that
+  project's own first-boot seeding (`review_queue/store.py::
+  _seed_runtime_config_defaults`), and `VERTEX_GCP_LOCATION` (along with
+  model and, for vertex, project) is seeded by this wizard directly into
+  `slot_config` instead — see below. `GITHUB_TARGET_REPO` is the one
+  survivor of the old "unconditional hardcoded operational default"
+  pattern this dict used to hold several of; it's pushed as `"*"`
+  (2026-09-07) — see the dedicated bullet below for why. Keep this dict in
+  sync with the sibling project's config by hand.
+- **`slot_config` (model, and for vertex, project/location) is seeded
+  directly into the newly-provisioned Supabase database, not pushed as a
+  Render env var** (2026-09-08, mirroring that project's own
+  slotted-config-and-db-delegation work — see
+  `docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-design.md`
+  section 5, and `~/pr-review-bot`'s `providers/active_model.py`/
+  `providers/active_vertex_slot.py`, which have no env fallback at all: a
+  missing row is a real `ValueError` at request time, not a degraded
+  default). `router.py`'s `_seed_slot_config()` opens a raw, short-timeout
+  `psycopg` connection directly against the visitor's own
+  `supabase["database_url"]` (already in-session by this point) — a
+  one-shot write, not a pool — and runs a `CREATE TABLE IF NOT EXISTS
+  slot_config (...)` (duplicated by hand from that project's `store.py`
+  `_SCHEMA`, same convention as `_LLM_ENV_VAR_NAMES`/
+  `_GENERIC_OPERATIONAL_ENV_DEFAULTS`) before the `INSERT ... ON CONFLICT
+  DO UPDATE`, since a freshly-provisioned database has no schema yet at
+  all — the deployed bot's own first boot is what normally creates it, and
+  this wizard runs before that first boot ever happens. Always writes
+  `slot_index = 0` — this wizard has no UI for choosing a numbered
+  credential slot, it only ever provisions the base credential, which
+  matches `providers/key_index.py::active_key_index`'s own default-to-0
+  behavior when no override is set. `vertex_gcp_project` is always written
+  `NULL` (no project-collection UI exists in this wizard; that project's
+  `factory.py` derives it from the service-account key's own embedded
+  `project_id` when the DB value is empty) and `vertex_gcp_location` is
+  written `"us-central1"` for vertex only (that project's `factory.py`
+  raises if location resolves empty, with no fallback of its own — this is
+  the one field this wizard *must* seed for a vertex credential to be
+  usable at all).
+  **This seed runs before the Render push, and a seed failure refuses the
+  whole call (`{"valid": false, "reason": "slot_config_seed_failed"}`)
+  without ever calling `render_client.push_env_vars`** — the visitor must
+  never reach a state where Render has the LLM credential but the database
+  has no matching `slot_config` row for it, which the no-fallback
+  resolution above would turn into every review request failing at
+  runtime. The reverse case (seed succeeds, Render push then fails) is
+  unremarkable and already covered by the existing partial-failure
+  reporting below — a dangling, unused `slot_config` row for a service
+  that never got its credential is not a correctness problem the way the
+  other ordering would be.
 - **The final `render-deploy` frame stays open (doesn't collapse) once
   done** (2026-09-02) — `completeFrame()` grew a 5th, optional `keepOpen`
   parameter (every other call site omits it, keeping the default
