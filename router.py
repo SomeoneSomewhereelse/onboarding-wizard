@@ -165,9 +165,9 @@ class DashboardAuthConfirmRequest(BaseModel):
 # copy, not a shared import. Keep in sync if a provider's env var names
 # ever change there.
 _LLM_ENV_VAR_NAMES = {
-    "gemini": ("GEMINI_API_KEY", "LLM_MODEL"),
+    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL"),
     "groq": ("GROQ_API_KEY", "GROQ_MODEL"),
-    "vertex": ("GCP_SERVICE_ACCOUNT_KEY", "VERTEX_MODEL"),
+    "vertex": ("VERTEX_GCP_SERVICE_ACCOUNT_KEY", "VERTEX_MODEL"),
 }
 
 # The sibling review-engine project's (~/pr-review-bot) config.py's
@@ -176,7 +176,7 @@ _LLM_ENV_VAR_NAMES = {
 # config.py Settings field defaults hardcoded here -- same
 # duplication-not-import pattern as _LLM_ENV_VAR_NAMES above, kept in sync
 # by hand, nothing automated ties the two together. Render's API rejects an
-# empty env-var value outright (ISSUES.md 2026-08-17), so GCP_PROJECT --
+# empty env-var value outright (ISSUES.md 2026-08-17), so VERTEX_GCP_PROJECT --
 # still genuinely blank by default over there -- is deliberately excluded
 # rather than pushed as "": an operator who wants it set can still do so
 # after the fact (Render dashboard, or that project's deploy.py --sync-env).
@@ -194,10 +194,10 @@ _LLM_ENV_VAR_NAMES = {
 # by hand -- there is no automated check tying the two together.
 _GENERIC_OPERATIONAL_ENV_DEFAULTS = {
     "GITHUB_TARGET_REPO": "*",
-    "GCP_LOCATION": "us-central1",
+    "VERTEX_GCP_LOCATION": "us-central1",
     "LLM_REQUEST_TIMEOUT_SECONDS": "45.0",
     "DISPATCHER_IDLE_SLEEP_SECONDS": "1.0",
-    "DEFAULT_RETRY_AFTER_SECONDS": "60.0",
+    "DISPATCHER_DEFAULT_RETRY_AFTER_SECONDS": "60.0",
     "DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS": "2.0",
     "DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS": "300.0",
     "DISPATCHER_MAX_FAILURE_ATTEMPTS": "5",

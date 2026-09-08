@@ -1594,7 +1594,7 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         "DATABASE_URL": "postgresql://x",
         "LLM_PROVIDER": "gemini",
         "GEMINI_API_KEY": "AIza-x",
-        "LLM_MODEL": "gemini-flash-latest",
+        "GEMINI_MODEL": "gemini-flash-latest",
         "DASHBOARD_USERNAME": "admin",
         "DASHBOARD_PASSWORD": "pw123456",
         "DASHBOARD_SESSION_SECRET": "s" * 32,
