@@ -2755,9 +2755,11 @@
 
   function renderGithubAppInstructions() {
     const renderService = readStoredRenderService();
+    const homepageUrl = renderService && renderService.service_url
+      ? renderService.service_url : "—";
     const webhookUrl = renderService && renderService.service_url
       ? `${renderService.service_url}/webhook` : "—";
-    document.getElementById("github-app-homepage-url").textContent = window.ONBOARDING_BASE_URL;
+    document.getElementById("github-app-homepage-url").textContent = homepageUrl;
     document.getElementById("github-app-webhook-url").textContent = webhookUrl;
     document.getElementById("github-app-webhook-secret").textContent = ensureGithubAppWebhookSecret();
     const ACCESS_LABELS = {read: t("frame2_access_read"), write: t("frame2_access_write")};
