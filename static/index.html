@@ -561,6 +561,19 @@
      (see wireFrameHingeAnimations()), not CSS. transform-origin stays
      here since the animated transform still needs it. */
   details.frame > .frame-body { transform-origin: top center; }
+  /* Was a bare <p>/<span> -- promoted to a block-level div so the Hebrew
+     translation can hold a real nested <ol> (a paragraph auto-closes
+     around block content). English never needs the nested list (its own
+     arrow-chain breadcrumbs already read correctly left-to-right), so this
+     is just a plain-text line for English -- the margin below matches a
+     <p>'s own default so English's layout is unaffected by the tag swap. */
+  .frame-instructions { margin: 1em 0; }
+  .frame-instructions ol { margin: 0.4rem 0; padding-inline-start: 1.4rem; }
+  /* The value + its copy button, on their own line below the label above --
+     was inline on the same line as the label, which crowded a long
+     Webhook secret/URL value right up against its own description. */
+  .value-row { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
+  .value-row code { overflow-wrap: anywhere; }
   .frame-body input[type="password"], .frame-body input[type="text"], .frame-body select {
     width: 100%;
     padding: 0.5rem;
@@ -788,8 +801,8 @@
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="langPopupTitle">
       <h2 id="langPopupTitle"></h2>
       <div class="radio-group">
-        <label><input type="radio" name="lang" value="en"> 🇺🇸 English</label>
-        <label><input type="radio" name="lang" value="he"> 🇮🇱 עברית</label>
+        <label><input type="radio" name="lang" value="en"> English</label>
+        <label><input type="radio" name="lang" value="he"> עברית</label>
       </div>
     </div>
   </div>
@@ -901,7 +914,7 @@
         <span class="frame-detail"></span>
       </summary>
       <div class="frame-body">
-        <p data-i18n="frame1_instructions"></p>
+        <div class="frame-instructions" data-i18n="frame1_instructions"></div>
         <input id="render-key-input" type="password" autocomplete="off">
         <button id="render-key-submit" type="button" data-i18n="validate_button"></button>
         <p id="render-key-error" class="frame-error" aria-live="polite"></p>
@@ -974,8 +987,9 @@
         <p data-i18n="frame2_instructions"></p>
         <ol>
           <li data-i18n="frame2_step_create"></li>
-          <li><span data-i18n="frame2_step_homepage_url"></span> <code id="github-app-homepage-url"></code></li>
-          <li><span data-i18n="frame2_step_webhook_url"></span> <code id="github-app-webhook-url"></code><span class="copy-wrap"><button id="github-app-webhook-url-copy" class="copy-btn" type="button" data-copy-target="github-app-webhook-url">
+          <li>
+            <div class="frame-instructions" data-i18n="frame2_step_homepage_url"></div>
+            <div class="value-row"><code id="github-app-homepage-url"></code><span class="copy-wrap"><button id="github-app-homepage-url-copy" class="copy-btn" type="button" data-copy-target="github-app-homepage-url">
               <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="13" height="13" rx="2"/>
@@ -985,8 +999,11 @@
                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
-            </button><span class="copy-tooltip" role="status" aria-hidden="true"></span></span></li>
-          <li><span data-i18n="frame2_step_webhook_secret"></span> <code id="github-app-webhook-secret"></code><span class="copy-wrap"><button id="github-app-webhook-secret-copy" class="copy-btn" type="button" data-copy-target="github-app-webhook-secret">
+            </button><span class="copy-tooltip" role="status" aria-hidden="true"></span></span></div>
+          </li>
+          <li>
+            <div class="frame-instructions" data-i18n="frame2_step_webhook_url"></div>
+            <div class="value-row"><code id="github-app-webhook-url"></code><span class="copy-wrap"><button id="github-app-webhook-url-copy" class="copy-btn" type="button" data-copy-target="github-app-webhook-url">
               <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="13" height="13" rx="2"/>
@@ -996,7 +1013,22 @@
                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
-            </button><span class="copy-tooltip" role="status" aria-hidden="true"></span></span></li>
+            </button><span class="copy-tooltip" role="status" aria-hidden="true"></span></span></div>
+          </li>
+          <li>
+            <div class="frame-instructions" data-i18n="frame2_step_webhook_secret"></div>
+            <div class="value-row"><code id="github-app-webhook-secret"></code><span class="copy-wrap"><button id="github-app-webhook-secret-copy" class="copy-btn" type="button" data-copy-target="github-app-webhook-secret">
+              <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="13" height="13" rx="2"/>
+                <rect x="8" y="8" width="13" height="13" rx="2"/>
+              </svg>
+              <svg class="copy-check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </button><span class="copy-tooltip" role="status" aria-hidden="true"></span></span></div>
+          </li>
           <li>
             <span data-i18n="frame2_step_permissions"></span>
             <table>
@@ -1031,7 +1063,7 @@
       </summary>
       <div class="frame-body">
         <div id="supabase-connect-section">
-          <p data-i18n="frame3_instructions"></p>
+          <div class="frame-instructions" data-i18n="frame3_instructions"></div>
           <input id="supabase-key-input" type="password" autocomplete="off">
           <button id="supabase-key-submit" type="button" data-i18n="validate_supabase_key_button"></button>
         </div>
@@ -1091,7 +1123,7 @@
           <p data-i18n="frame5_blocked_no_render_url"></p>
         </div>
         <div id="uptime-pinger-form-section" style="display: none;">
-          <p data-i18n="frame5_instructions"></p>
+          <div class="frame-instructions" data-i18n="frame5_instructions"></div>
           <input id="uptime-pinger-api-key-input" type="password">
           <button id="uptime-pinger-submit" type="button" data-i18n="validate_button"></button>
         </div>
@@ -1300,7 +1332,7 @@
       reset_wizard_confirm_no: "ביטול",
       err_no_session: "ההפעלה שלכם אינה מוכנה לשלב הזה — נא להשלים את השלבים הקודמים קודם.",
       frame1_title: "1. מפתח API של Render",
-      frame1_instructions: "קבלו מפתח מלוח הבקרה של Render: Account Settings ← API Keys.",
+      frame1_instructions: "קבלו מפתח מלוח הבקרה של Render:<ol><li>Account Settings</li><li>API Keys</li></ol>",
       frame1_placeholder: "rnd_...",
       frame2_title: "4. אפליקציית GitHub",
       frame3_title: "5. מסד נתונים ב-Supabase",
@@ -1361,10 +1393,10 @@
       restored: "שוחזר מהפעלה זו",
       owner_prefix: "בעלים: ",
       frame2_instructions: "צרו אפליקציית GitHub באופן ידני והתקינו אותה, לפי השלבים למטה. הכול נעשה בממשק של GitHub עצמו — האשף לעולם לא ינווט אתכם לשם.",
-      frame2_step_create: "עברו ב-GitHub אל Settings ← Developer settings ← GitHub Apps ← New GitHub App ומלאו את הטופס. בחרו שם ייחודי כלשהו.",
+      frame2_step_create: "עברו ב-GitHub אל:<ol><li>Settings</li><li>Developer settings</li><li>GitHub Apps</li><li>New GitHub App</li></ol>ומלאו את הטופס. בחרו שם ייחודי כלשהו.",
       frame2_step_homepage_url: "כתובת דף הבית (Homepage URL):",
-      frame2_step_webhook_url: "Webhook ← Webhook URL (וסמנו את Webhook ← Active):",
-      frame2_step_webhook_secret: "Webhook ← Webhook secret — הדביקו בדיוק את הערך הזה:",
+      frame2_step_webhook_url: "פתחו את:<ol><li>Webhook</li><li>Webhook URL</li></ol>(וודאו גם שהאפשרות Active מסומנת שם):",
+      frame2_step_webhook_secret: "פתחו את:<ol><li>Webhook</li><li>Webhook secret</li></ol>— הדביקו בדיוק את הערך הזה:",
       frame2_step_permissions: "הרשאות המאגר (Repository permissions) — הגדירו בדיוק כך:",
       frame2_permission_col: "הרשאה",
       frame2_access_col: "גישה",
@@ -1372,7 +1404,7 @@
       frame2_access_write: "קריאה וכתיבה",
       frame2_step_events: "הירשמו לאירועים (Subscribe to events): Pull request בלבד.",
       frame2_step_private: "היכן ניתן להתקין את האפליקציה? רק בחשבון הזה (Only on this account).",
-      frame2_step_install: "לחצו Create GitHub App, ואז התקינו אותה על החשבון/המאגרים שלכם מתוך דף ההגדרות של האפליקציה ב-GitHub (Settings ← Developer settings ← GitHub Apps ← האפליקציה שלכם ← Install App).",
+      frame2_step_install: "לחצו Create GitHub App, ואז התקינו אותה על החשבון/המאגרים שלכם מתוך דף ההגדרות של האפליקציה ב-GitHub:<ol><li>Settings</li><li>Developer settings</li><li>GitHub Apps</li><li>האפליקציה שלכם</li><li>Install App</li></ol>",
       frame2_app_id_label: "מזהה האפליקציה (App ID)",
       frame2_private_key_label: "מפתח פרטי — לחצו על \"Generate a private key\" בדף האפליקציה כדי להוריד קובץ .pem, ואז בחרו אותו כאן:",
       err_github_app_id_invalid: "הזינו את מזהה האפליקציה — המספר שבדף ההגדרות הכלליות של האפליקציה שלכם.",
@@ -1387,7 +1419,7 @@
       frame2_check_installation_none: "לא נמצאה התקנה עדיין — התקינו את האפליקציה קודם, ואז בדקו שוב",
       frame2_check_webhook: "כתובת ה-Webhook תואמת",
       account_prefix: "חשבון: ",
-      frame3_instructions: "הדביקו Personal Access Token של Supabase (Account ← Access Tokens ← Generate new token). זה מאפשר לאשף ליצור פרויקט חדש בחשבון ה-Supabase שלכם.",
+      frame3_instructions: "הדביקו Personal Access Token של Supabase:<ol><li>Account</li><li>Access Tokens</li><li>Generate new token</li></ol>זה מאפשר לאשף ליצור פרויקט חדש בחשבון ה-Supabase שלכם.",
       frame3_name_placeholder: "pr-review-bot",
       validate_supabase_key_button: "אימות",
       frame3_org_instructions: "בחרו לאיזה ארגון ב-Supabase ליצור את הפרויקט.",
@@ -1429,10 +1461,10 @@
       err_llm_no_models_available: "פרטי ההתחברות תקינים, אך אין מודלים זמינים לשימוש. ודאו שיש לחשבון/לפרויקט שלכם מודל מתאים מופעל.",
       err_llm_no_model_selected: "בחרו מודל קודם.",
       err_llm_storage_failed: "לא ניתן היה לשמור זאת בדפדפן זה. נסו שוב.",
-      frame5_instructions: "הדביקו את מפתח ה-API הראשי שלכם ב-UptimeRobot (My Settings ← API Keys ← Main API Key — לא מפתח Monitor-Specific, שלא יעבוד כאן) כדי ליצור את הפינגר לשמירה על פעילות עבור השירות שפרסתם.",
+      frame5_instructions: "הדביקו את מפתח ה-API הראשי שלכם ב-UptimeRobot:<ol><li>My Settings</li><li>API Keys</li><li>Main API Key</li></ol>(לא מפתח Monitor-Specific, שלא יעבוד כאן) כדי ליצור את הפינגר לשמירה על פעילות עבור השירות שפרסתם.",
       frame5_blocked_no_render_url: "השלימו קודם את פריסת ה-Render שלכם — שלב זה זקוק לכתובת ה-URL שלה.",
       err_uptime_empty_key: "הדביקו קודם את מפתח ה-API של UptimeRobot.",
-      err_uptime_unauthorized: "המפתח נדחה. שימו לב: מפתח Monitor-Specific לא יעבוד כאן — השתמשו במפתח הראשי (Main API Key) מתוך My Settings ← API Keys ב-UptimeRobot.",
+      err_uptime_unauthorized: "המפתח נדחה. שימו לב: מפתח Monitor-Specific לא יעבוד כאן — השתמשו במפתח הראשי (Main API Key) מתוך לשונית API Keys בעמוד My Settings ב-UptimeRobot.",
       err_uptime_rate_limited: "יותר מדי בקשות ל-UptimeRobot כרגע. נסו שוב בעוד רגע.",
       err_uptime_unreachable: "UptimeRobot אינו זמין כרגע. נסו שוב בעוד רגע.",
       err_uptime_request_rejected: "UptimeRobot דחה את הבקשה. נסו שוב בעוד רגע.",
@@ -1442,7 +1474,7 @@
   };
 
   const THEME_ICON = { light: "☀️", dark: "🌙", system: "🖥️" };
-  const LANG_LABEL = { en: "🇺🇸 English", he: "🇮🇱 עברית" };
+  const LANG_LABEL = { en: "English", he: "עברית" };
 
   const KNOWN_LANGS = ["en", "he"];
   const KNOWN_THEMES = ["light", "dark", "system"];
@@ -1488,6 +1520,28 @@
     document.querySelector(`input[name="theme"][value="${theme}"]`).checked = true;
   }
 
+  // These keys' Hebrew translation embeds a nested <ol> (a genuine step
+  // list, not translated prose) -- rendered via innerHTML instead of
+  // textContent so that markup actually parses into elements. English's
+  // own translation for every one of these keys stays plain text (no
+  // markup, no special characters), so assigning it via innerHTML behaves
+  // identically to textContent for English -- this only changes behavior
+  // for Hebrew. See CLAUDE.md's bidi-breadcrumb section for why the
+  // Hebrew side needs a real nested list rather than an inline arrow
+  // chain (`Account Settings → API Keys`), which mixing RTL/LTR text
+  // renders ambiguously (an embedded LTR run's own position among
+  // *other* embedded LTR runs is governed by the surrounding RTL
+  // paragraph's directionality, not by reading order).
+  const HTML_I18N_KEYS = new Set([
+    "frame1_instructions",
+    "frame2_step_create",
+    "frame2_step_webhook_url",
+    "frame2_step_webhook_secret",
+    "frame2_step_install",
+    "frame3_instructions",
+    "frame5_instructions",
+  ]);
+
   function applyLanguage(lang) {
     currentLang = lang;
     localStorage.setItem("onboarding_lang", lang);
@@ -1496,7 +1550,12 @@
     document.title = t("page_title");
     document.getElementById("langToggleBtn").textContent = LANG_LABEL[lang];
     document.querySelectorAll("[data-i18n]").forEach((el) => {
-      el.textContent = t(el.getAttribute("data-i18n"));
+      const key = el.getAttribute("data-i18n");
+      if (HTML_I18N_KEYS.has(key)) {
+        el.innerHTML = t(key);
+      } else {
+        el.textContent = t(key);
+      }
     });
     document.getElementById("render-key-input").placeholder = t("frame1_placeholder");
     document.getElementById("supabase-project-name-input").placeholder = t("frame3_name_placeholder");

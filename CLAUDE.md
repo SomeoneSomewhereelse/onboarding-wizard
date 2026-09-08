@@ -171,6 +171,50 @@ boot smoke test, not a size assertion) -- the test only guards against
 someone silently reintroducing the anti-pattern, and its regression comment
 carries the measured numbers for anyone re-evaluating this later.
 
+## Hebrew strings never chain multiple embedded LTR terms with an arrow (2026-09-08)
+
+Several Hebrew strings used to embed a chain of untranslated English UI
+labels separated by an arrow (e.g. `Account Settings ← API Keys`, or a
+four-term GitHub navigation chain) directly inline in RTL prose. This
+reads ambiguously to visitors, and the ambiguity is not simply "wrong
+arrow direction" -- it was measured directly (via `getBoundingClientRect()`
+on each term, not by eyeballing a screenshot): **an embedded LTR run's
+on-screen position relative to *other* embedded LTR runs is governed by
+the surrounding RTL paragraph's directionality, not by the order the runs
+appear in the source string.** Isolating each run (Unicode LRI/PDI,
+`⁦`/`⁩`) makes this deterministic across renderers instead of
+implementation-dependent, but isolating *reverses* the terms' visual
+order -- meaning the arrow direction that reads correctly is the
+*opposite* of what feels intuitive, and is easy to get backward (this
+session got it backward once before catching it with direct
+measurement). Rather than depend on correctly matching arrow direction to
+isolation behavior in every future string -- a fragile, easy-to-invert
+rule with no compiler or test to catch a future mistake -- **every such
+chain is now a real nested `<ol>`/`<li>` list, one term per list item**,
+read top-to-bottom with no horizontal-adjacency reversal possible at all.
+English keeps its original flowing arrow-chain sentence unchanged (e.g.
+`Go to Settings → Developer settings → GitHub Apps → New GitHub App`) --
+English never had this problem, since a single LTR paragraph's own runs
+don't reorder relative to each other.
+
+**Implementation:** these Hebrew translations contain literal HTML
+(`<ol><li>...</li></ol>`), rendered via `el.innerHTML = t(key)` instead of
+`el.textContent = t(key)` -- gated by the `HTML_I18N_KEYS` set in
+`applyLanguage()`, checked per-key so every other translation keeps using
+`textContent` (the safe default). Only trusted, hand-authored translation
+strings are ever assigned this way -- never anything visitor-supplied.
+The container elements switched from `<p>`/`<span>` to `<div>` (a
+paragraph auto-closes around block content like a nested `<ol>`; a
+`<span>` isn't guaranteed to accept block children either). One exception:
+`err_uptime_unauthorized` is rendered through the same generic
+`errorEl.textContent = t(key)` path every other frame's error message
+uses, so giving *this one* key markup would require special-casing a
+single key inside a shared, generic rendering function used by every
+other error message -- disproportionate for one error string. That
+Hebrew string is reworded with ordinary prepositions instead (`מתוך
+לשונית API Keys בעמוד My Settings`) rather than an arrow chain, sidestepping
+the problem via content rather than markup.
+
 ## The invariant this service now protects (2026-09-02, revised)
 
 This backend used to be a **stateless relay** — no database, no session

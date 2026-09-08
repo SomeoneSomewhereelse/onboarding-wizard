@@ -1519,3 +1519,67 @@ async def test_links_use_the_palette_accent_color_not_browser_defaults():
     assert "a { color: var(--accent); }" in body
     assert "a:visited { color: var(--accent); }" in body
     assert "a:hover, a:focus-visible { color: var(--gold); }" in body
+
+
+async def test_hebrew_breadcrumb_strings_use_a_real_nested_list_not_arrows():
+    """A mixed-direction chain like "Account Settings <arrow> API Keys"
+    embedded inline in Hebrew prose renders ambiguously: an embedded LTR
+    run's position among *other* embedded LTR runs is governed by the
+    surrounding RTL paragraph's directionality, not by the order the runs
+    appear in the source string -- confirmed by direct on-screen
+    measurement (getBoundingClientRect) showing the runs' visual order
+    flips depending on whether they're isolated, independent of which
+    arrow character is used. A real nested <ol> sidesteps the whole
+    class of bug: each term is its own block-level list item, read
+    top-to-bottom, with no horizontal-adjacency reversal possible.
+    English keeps its original flowing arrow-chain sentence unchanged --
+    it never had this problem, since English text reads left-to-right in
+    its own native direction."""
+    client = await _client()
+    body = (await client.get("/")).text
+    assert "←" not in body
+    assert "→" in body  # English still uses it -- never had the bug
+
+    html_keys_start = body.index("const HTML_I18N_KEYS = new Set([")
+    html_keys_body = body[html_keys_start : body.index("]);", html_keys_start)]
+    for key in (
+        "frame1_instructions",
+        "frame2_step_create",
+        "frame2_step_webhook_url",
+        "frame2_step_webhook_secret",
+        "frame2_step_install",
+        "frame3_instructions",
+        "frame5_instructions",
+    ):
+        assert f'"{key}"' in html_keys_body
+
+    apply_start = body.index("function applyLanguage")
+    placeholder_marker = 'document.getElementById("render-key-input").placeholder'
+    apply_body = body[apply_start : body.index(placeholder_marker)]
+    assert "if (HTML_I18N_KEYS.has(key)) {" in apply_body
+    assert "el.innerHTML = t(key);" in apply_body
+    assert "el.textContent = t(key);" in apply_body
+
+    # Pin the actual list order for one representative multi-term chain.
+    create_he = body[
+        body.index('frame2_step_create: "עברו') : body.index('frame2_step_webhook_url: "פתחו')
+    ]
+    assert (
+        "<ol><li>Settings</li><li>Developer settings</li><li>GitHub Apps</li>"
+        "<li>New GitHub App</li></ol>" in create_he
+    )
+
+
+async def test_github_app_value_rows_each_get_their_own_copy_button():
+    """Homepage URL previously had no copy button at all (only Webhook URL
+    and Webhook secret did) -- inconsistent, and copying a whole base URL
+    by hand is exactly the kind of thing a copy button exists for. Every
+    value now also sits on its own line below its label (was crammed onto
+    the same line), matching the label's own new block-level layout."""
+    client = await _client()
+    body = (await client.get("/")).text
+    targets = ("github-app-homepage-url", "github-app-webhook-url", "github-app-webhook-secret")
+    for target in targets:
+        assert f'<div class="value-row"><code id="{target}"></code>' in body
+        assert f'data-copy-target="{target}"' in body
+        assert f'id="{target}-copy" class="copy-btn"' in body
