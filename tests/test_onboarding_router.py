@@ -1574,12 +1574,18 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         {"username": "admin", "password": "pw123456", "session_secret": "s" * 32},
     )
     captured = {}
+    seeded = {}
 
     async def fake_push_env_vars(api_key, service_id, values):
         captured["values"] = values
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
+    def fake_seed_slot_config(database_url, provider, model, project, location):
+        seeded["args"] = (database_url, provider, model, project, location)
+        return True
+
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
     client = await _client()
     resp = await client.post(
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
@@ -1594,12 +1600,13 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         "DATABASE_URL": "postgresql://x",
         "LLM_PROVIDER": "gemini",
         "GEMINI_API_KEY": "AIza-x",
-        "GEMINI_MODEL": "gemini-flash-latest",
         "DASHBOARD_USERNAME": "admin",
         "DASHBOARD_PASSWORD": "pw123456",
         "DASHBOARD_SESSION_SECRET": "s" * 32,
         **router._GENERIC_OPERATIONAL_ENV_DEFAULTS,
     }
+    assert "GEMINI_MODEL" not in captured["values"]  # model is DB-only now
+    assert seeded["args"] == ("postgresql://x", "gemini", "gemini-flash-latest", None, None)
 
 
 async def test_bulk_push_omits_a_frame_that_was_never_completed(monkeypatch):
@@ -1646,6 +1653,114 @@ async def test_bulk_push_includes_github_target_repo_wildcard(monkeypatch):
     client = await _client()
     await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
     assert captured["values"]["GITHUB_TARGET_REPO"] == "*"
+
+
+def test_seed_slot_config_writes_a_real_row(db_url, db_query):
+    ok = router._seed_slot_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
+    assert ok is True
+    row = db_query(
+        "SELECT model, vertex_gcp_project, vertex_gcp_location "
+        "FROM slot_config WHERE provider = 'groq' AND slot_index = 0"
+    )
+    assert row == [("llama-3.3-70b-versatile", None, None)]
+
+
+def test_seed_slot_config_upserts_on_a_second_call(db_url, db_query):
+    router._seed_slot_config(db_url, "groq", "stale-model", None, None)
+    ok = router._seed_slot_config(db_url, "groq", "new-model", None, None)
+    assert ok is True
+    row = db_query(
+        "SELECT model FROM slot_config WHERE provider = 'groq' AND slot_index = 0"
+    )
+    assert row == [("new-model",)]
+
+
+def test_seed_slot_config_returns_false_on_an_unreachable_database():
+    ok = router._seed_slot_config(
+        "postgresql://u:p@localhost:1/nonexistent", "groq", "x", None, None
+    )
+    assert ok is False
+
+
+async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
+    """No project/location collection UI exists in this wizard -- vertex's
+    location falls back to the same "us-central1" default it used to push
+    as a plain Render env var, now written to slot_config instead. Project
+    stays None so pr-review-bot's own factory.py derives it from the
+    service-account key's embedded project_id."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-2.5-flash"},
+    )
+    seeded = {}
+
+    def fake_seed_slot_config(database_url, provider, model, project, location):
+        seeded["args"] = (database_url, provider, model, project, location)
+        return True
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json()["valid"] is True
+    assert seeded["args"] == (
+        "postgresql://x", "vertex", "gemini-2.5-flash", None, "us-central1",
+    )
+
+
+async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
+    """The visitor must never reach a deployable state where Render has the
+    credential but the database has no matching model row -- a DB-seed
+    failure must refuse before the Render push even runs."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
+    )
+
+    def fake_seed_slot_config(database_url, provider, model, project, location):
+        return False
+
+    def boom(*a, **k):
+        raise AssertionError("push_env_vars must not be called when the DB seed failed")
+
+    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(render_client, "push_env_vars", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["reason"] == "slot_config_seed_failed"
+
+
+async def test_generic_operational_env_defaults_no_longer_includes_tuning_knobs():
+    """The 9 dispatcher/timeout tuning knobs (plus VERTEX_GCP_LOCATION) are
+    DB-only on the deployed service now (2026-09-08 slotted-config-and-db-
+    delegation) -- they get their real value from that project's own
+    first-boot seeding, not from a Render env var this wizard pushes."""
+    for key in (
+        "VERTEX_GCP_LOCATION", "LLM_REQUEST_TIMEOUT_SECONDS",
+        "DISPATCHER_IDLE_SLEEP_SECONDS", "DISPATCHER_DEFAULT_RETRY_AFTER_SECONDS",
+        "DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS", "DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS",
+        "DISPATCHER_MAX_FAILURE_ATTEMPTS", "DISPATCHER_MAX_NOTICE_POST_ATTEMPTS",
+        "DISPATCHER_MIN_RETRY_AFTER_SECONDS", "DISPATCHER_BACKOFF_JITTER_SECONDS",
+        "DISPATCHER_NOTICE_SWEEP_BATCH_SIZE",
+    ):
+        assert key not in router._GENERIC_OPERATIONAL_ENV_DEFAULTS
 
 
 async def test_bulk_push_with_no_session_fails_closed():

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import secrets as _secrets
+from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
@@ -175,37 +177,107 @@ _LLM_ENV_VAR_NAMES = {
 # Render env vars (its _GENERIC_OPERATIONAL_ENV_ATTRS), with their
 # config.py Settings field defaults hardcoded here -- same
 # duplication-not-import pattern as _LLM_ENV_VAR_NAMES above, kept in sync
-# by hand, nothing automated ties the two together. Render's API rejects an
-# empty env-var value outright (ISSUES.md 2026-08-17), so VERTEX_GCP_PROJECT --
-# still genuinely blank by default over there -- is deliberately excluded
-# rather than pushed as "": an operator who wants it set can still do so
-# after the fact (Render dashboard, or that project's deploy.py --sync-env).
+# by hand, nothing automated ties the two together.
 #
-# GITHUB_TARGET_REPO used to be excluded for the same reason (blank
-# default) but that project's main.py lifespan now refuses to boot at all
-# without it explicitly set -- config.py's target_repos() names "*" the
+# As of that project's 2026-09-08 slotted-config-and-db-delegation work,
+# the 9 dispatcher/timeout tuning knobs (plus VERTEX_GCP_PROJECT/_LOCATION
+# and every provider's model var) are DB-only there -- no Render env var at
+# all. This wizard follows suit: those 11 keys are removed from here
+# entirely (nothing to push -- the 9 tuning knobs get their real value from
+# that project's own first-boot seeding, review_queue/store.py::
+# _seed_runtime_config_defaults, the moment the newly-deployed service
+# boots for the first time; model/project/location are seeded directly by
+# this wizard into slot_config below, since THAT has no automatic
+# first-boot seed of its own).
+#
+# GITHUB_TARGET_REPO used to be excluded for the same reason blank-default
+# keys were (Render's API rejects an empty value outright, ISSUES.md
+# 2026-08-17) but that project's main.py lifespan now refuses to boot at
+# all without it explicitly set -- config.py's target_repos() names "*" the
 # required, operator-set sentinel for "no restriction" (see that project's
 # 2026-09-07 config.py change). This wizard has no frame that collects a
 # repo allowlist from the visitor, and every instance it provisions is a
 # track-all install, so "*" is pushed unconditionally here rather than
 # left for the operator to discover the hard way via a boot-looping deploy.
-#
-# Keep these in sync with that project's config.py's actual field defaults
-# by hand -- there is no automated check tying the two together.
 _GENERIC_OPERATIONAL_ENV_DEFAULTS = {
     "GITHUB_TARGET_REPO": "*",
-    "VERTEX_GCP_LOCATION": "us-central1",
-    "LLM_REQUEST_TIMEOUT_SECONDS": "45.0",
-    "DISPATCHER_IDLE_SLEEP_SECONDS": "1.0",
-    "DISPATCHER_DEFAULT_RETRY_AFTER_SECONDS": "60.0",
-    "DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS": "2.0",
-    "DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS": "300.0",
-    "DISPATCHER_MAX_FAILURE_ATTEMPTS": "5",
-    "DISPATCHER_MAX_NOTICE_POST_ATTEMPTS": "3",
-    "DISPATCHER_MIN_RETRY_AFTER_SECONDS": "1.0",
-    "DISPATCHER_BACKOFF_JITTER_SECONDS": "0.0",
-    "DISPATCHER_NOTICE_SWEEP_BATCH_SIZE": "20",
 }
+
+# Duplicated (not imported) from the sibling review-engine project's
+# (~/pr-review-bot) review_queue/store.py::_SCHEMA -- same
+# duplication-not-import convention as _LLM_ENV_VAR_NAMES/
+# _GENERIC_OPERATIONAL_ENV_DEFAULTS above. A freshly-provisioned Supabase
+# database has no schema at all yet (that project's own store.init_pool()
+# is what normally creates it, the first time the deployed service itself
+# boots) -- this wizard runs BEFORE that first boot (the visitor must not
+# be able to reach the deploy trigger without slot_config already seeded),
+# so it has to create just this one table itself. CREATE TABLE IF NOT
+# EXISTS makes this safe to run again once the real service boots and
+# creates its own full schema: this is a no-op against a table that
+# already exists, with an identical shape either way.
+_SLOT_CONFIG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS slot_config (
+    provider            TEXT    NOT NULL,
+    slot_index          INTEGER NOT NULL,
+    model               TEXT,
+    vertex_gcp_project  TEXT,
+    vertex_gcp_location TEXT,
+    updated_at          TEXT    NOT NULL,
+    PRIMARY KEY (provider, slot_index)
+);
+ALTER TABLE slot_config ENABLE ROW LEVEL SECURITY;
+"""
+
+_DB_CONNECT_TIMEOUT = 10
+
+
+def _seed_slot_config(
+    database_url: str,
+    provider: str,
+    model: str,
+    vertex_gcp_project: str | None,
+    vertex_gcp_location: str | None,
+) -> bool:
+    """Write slot 0's model (and for vertex, project/location) directly into
+    the newly-provisioned instance's own database -- see
+    docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-
+    design.md section 5: a wizard-provisioned service must never boot into
+    "no env fallback, no DB row either" for its own just-configured
+    provider. Always slot 0: this wizard has no UI for choosing a numbered
+    credential slot, it only ever provisions the base credential.
+
+    Raw, short-timeout connection (not a pool) -- a one-shot provisioning
+    step, same reason pr-review-bot's own scripts/deploy.py avoids
+    store.init_pool()'s 30s pool timeout for this kind of single write.
+    Returns True on success, False on any failure (never raises) -- the
+    caller reports this the same way it reports a Render push failure, so
+    the visitor cannot reach a state where Render has the credential but
+    the DB has no matching model row, or vice versa.
+    """
+    try:
+        with psycopg.connect(database_url, connect_timeout=_DB_CONNECT_TIMEOUT) as conn:
+            conn.execute(_SLOT_CONFIG_SCHEMA)
+            conn.execute(
+                "INSERT INTO slot_config "
+                "(provider, slot_index, model, vertex_gcp_project, vertex_gcp_location, "
+                "updated_at) "
+                "VALUES (%s, 0, %s, %s, %s, %s) "
+                "ON CONFLICT (provider, slot_index) DO UPDATE SET "
+                "model = EXCLUDED.model, "
+                "vertex_gcp_project = EXCLUDED.vertex_gcp_project, "
+                "vertex_gcp_location = EXCLUDED.vertex_gcp_location, "
+                "updated_at = EXCLUDED.updated_at",
+                (
+                    provider,
+                    model,
+                    vertex_gcp_project,
+                    vertex_gcp_location,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _render_index() -> HTMLResponse:
@@ -692,10 +764,12 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
 
     llm_provider = (await _read_frame(session_id, "llm_provider"))
     if llm_provider:
-        credential_var, model_var = _LLM_ENV_VAR_NAMES[llm_provider["provider"]]
+        # Credential only -- no model_var push. active_model() is DB-only
+        # over there now (slot_config), so a model var has no Render
+        # presence at all (2026-09-08 slotted-config-and-db-delegation).
+        credential_var, _model_var = _LLM_ENV_VAR_NAMES[llm_provider["provider"]]
         env_vars["LLM_PROVIDER"] = llm_provider["provider"]
         env_vars[credential_var] = llm_provider["credential_value"]
-        env_vars[model_var] = llm_provider["model"]
 
     dashboard_auth = (await _read_frame(session_id, "dashboard_auth"))
     if dashboard_auth:
@@ -706,6 +780,35 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     # Always included, not gated on any frame: these are tuning defaults,
     # not visitor-submitted credentials -- see _GENERIC_OPERATIONAL_ENV_DEFAULTS.
     env_vars.update(_GENERIC_OPERATIONAL_ENV_DEFAULTS)
+
+    # Seed slot_config BEFORE the Render push (and refuse if it fails) --
+    # the visitor must never be able to reach a deployable state where
+    # Render has the credential but the newly-provisioned database has no
+    # matching model row (see docs/superpowers/specs/2026-09-08-slotted-
+    # config-and-db-delegation-design.md section 5). Model/project/location
+    # are DB-only now, with no automatic first-boot seed of their own (only
+    # the 9 tuning knobs get one, via that project's own
+    # _seed_runtime_config_defaults) -- this wizard is the only thing that
+    # can seed them for a freshly-provisioned instance, since it runs
+    # before the deployed service ever boots for the first time.
+    if llm_provider and supabase and "database_url" in supabase:
+        # No project/location collection UI exists in this wizard (never
+        # did) -- vertex_gcp_project stays None so pr-review-bot's own
+        # factory.py derives it from the service-account key's embedded
+        # project_id, exactly as it already did when this wizard never
+        # pushed VERTEX_GCP_PROJECT either. vertex_gcp_location preserves
+        # the same "us-central1" default this wizard used to push as a
+        # plain Render env var, now written to the DB instead.
+        seeded = await asyncio.to_thread(
+            _seed_slot_config,
+            supabase["database_url"],
+            llm_provider["provider"],
+            llm_provider["model"],
+            None,
+            "us-central1" if llm_provider["provider"] == "vertex" else None,
+        )
+        if not seeded:
+            return {"valid": False, "reason": "slot_config_seed_failed", "pushed": []}
 
     result = await render_client.push_env_vars(
         render_frame["api_key"], render_frame["service_id"], env_vars
