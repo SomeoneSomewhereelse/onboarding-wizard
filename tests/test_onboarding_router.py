@@ -1445,6 +1445,117 @@ async def test_deploy_status_endpoint_with_no_session_fails_closed():
     assert resp.json() == {"valid": False, "reason": "no_session"}
 
 
+async def test_deploy_status_endpoint_persists_deployed_once_live(monkeypatch):
+    """A revisit after the browser's own sessionStorage mirror is lost (new
+    device, mobile tab discard) must still be able to tell the service is
+    already deployed -- GET /api/session can only report that if this
+    write actually happens when Render first reports "live"."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {"api_key": "rnd_x", "service_id": "srv-1", "pending_deploy_id": "dep-1"},
+    )
+
+    async def fake_poll_deploy_status(api_key, service_id, deploy_id):
+        return render_client.RenderDeployStatus(status="live")
+
+    monkeypatch.setattr(render_client, "poll_deploy_status", fake_poll_deploy_status)
+    client = await _client()
+    await client.post("/api/render/deploy-status", cookies={"onboarding_session": session_id})
+    assert fake.read_frame(session_id, "render")["deployed"] is True
+
+
+async def test_deploy_status_endpoint_does_not_persist_deployed_while_in_progress(monkeypatch):
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {"api_key": "rnd_x", "service_id": "srv-1", "pending_deploy_id": "dep-1"},
+    )
+
+    async def fake_poll_deploy_status(api_key, service_id, deploy_id):
+        return render_client.RenderDeployStatus(status="in_progress")
+
+    monkeypatch.setattr(render_client, "poll_deploy_status", fake_poll_deploy_status)
+    client = await _client()
+    await client.post("/api/render/deploy-status", cookies={"onboarding_session": session_id})
+    assert "deployed" not in fake.read_frame(session_id, "render")
+
+
+async def test_clear_deploy_state_endpoint_resets_deployed_and_pending_deploy_id(monkeypatch):
+    """Called when an earlier frame this final step depends on gets
+    changed (static/index.html's lockFrame("render-deploy")) -- a stale
+    persisted "deployed" flag must not resurrect the OLD deploy's done
+    state on a reload mid-redo."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {
+            "api_key": "rnd_x", "service_id": "srv-1",
+            "pending_deploy_id": "dep-1", "deployed": True,
+        },
+    )
+    client = await _client()
+    resp = await client.post(
+        "/api/render/clear-deploy-state", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": True}
+    render_frame = fake.read_frame(session_id, "render")
+    assert not render_frame.get("deployed")
+    assert not render_frame.get("pending_deploy_id")
+    # service_id/service_url are untouched -- still valid, only render-deploy's
+    # own resumable state is being invalidated here.
+    assert render_frame["service_id"] == "srv-1"
+
+
+async def test_clear_deploy_state_endpoint_with_no_session_fails_closed():
+    client = await _client()
+    resp = await client.post("/api/render/clear-deploy-state")
+    assert resp.json() == {"valid": False, "reason": "no_session"}
+
+
+async def test_get_session_reports_render_deploy_complete_once_deployed(monkeypatch):
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {
+            "api_key": "rnd_x", "service_id": "srv-1",
+            "service_url": "https://x.onrender.com", "deployed": True,
+        },
+    )
+    client = await _client()
+    resp = await client.get("/api/session", cookies={"onboarding_session": session_id})
+    assert resp.json()["frames"]["render-deploy"] == {
+        "complete": True, "display": {"service_url": "https://x.onrender.com"}
+    }
+
+
+async def test_get_session_reports_render_deploy_provisioning_while_pending(monkeypatch):
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {"api_key": "rnd_x", "service_id": "srv-1", "pending_deploy_id": "dep-1"},
+    )
+    client = await _client()
+    resp = await client.get("/api/session", cookies={"onboarding_session": session_id})
+    assert resp.json()["frames"]["render-deploy"] == {
+        "complete": False, "provisioning": True, "display": {"pending_deploy_id": "dep-1"}
+    }
+
+
+async def test_get_session_omits_render_deploy_before_any_deploy_is_triggered(monkeypatch):
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    client = await _client()
+    resp = await client.get("/api/session", cookies={"onboarding_session": session_id})
+    assert "render-deploy" not in resp.json()["frames"]
+
+
 async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
     fake = _use_fake_session_store(monkeypatch)
     session_id = fake.create_session()

@@ -1011,6 +1011,12 @@ async def test_deploy_status_fetch_leaves_the_page_exactly_once():
     assert body.count('fetch("/api/render/deploy-status"') == 1
 
 
+async def test_clear_deploy_state_fetch_leaves_the_page_exactly_once():
+    client = await _client()
+    body = (await client.get("/")).text
+    assert body.count('fetch("/api/render/clear-deploy-state"') == 1
+
+
 async def test_render_service_frame_i18n_strings_present_in_both_languages():
     client = await _client()
     body = (await client.get("/")).text
@@ -1290,8 +1296,8 @@ async def test_render_deploy_frame_reopens_on_a_fresh_reload_after_completion():
     restore_start = body.index("async function restoreFromSession")
     restore_body = body[restore_start : body.index("function guardLockedFrames")]
     deployed_branch = restore_body[
-        restore_body.index("renderServiceState.deployed") :
-        restore_body.index("else if (renderServiceState")
+        restore_body.index("if (deployedServiceUrl)") :
+        restore_body.index("else if (pendingDeployId)")
     ]
     assert 'completeFrame("render-deploy", null, null, "deploy_done", true);' in deployed_branch
     # render-deploy-trigger-section has no `style="display: none"` in its
@@ -1305,7 +1311,7 @@ async def test_render_deploy_frame_reopens_on_a_fresh_reload_after_completion():
         in deployed_branch
     )
 
-    pending_branch = restore_body[restore_body.index("else if (renderServiceState") :]
+    pending_branch = restore_body[restore_body.index("else if (pendingDeployId)") :]
     assert 'unlockFrame("render-deploy");' in pending_branch
 
     lock_start = body.index("function lockFrame(id)")
@@ -1335,14 +1341,18 @@ async def test_supabase_check_again_button_disables_itself_while_in_flight():
 
 async def test_restoring_a_completed_deploy_shows_the_dashboard_link():
     """A reload after a completed deploy must re-show the done-section link,
-    not just mark the frame done with no visible way back to the dashboard."""
+    not just mark the frame done with no visible way back to the dashboard.
+    See tests/test_onboarding_page_browser.py's
+    test_restore_from_session_shows_deployed_service_link_when_server_reports_deployed
+    for the corresponding real-browser behavior test (server-reported
+    deployed state, no local sessionStorage mirror at all)."""
     client = await _client()
     body = (await client.get("/")).text
-    fn_start = body.index("renderServiceState && renderServiceState.deployed")
-    fn_snippet = body[fn_start:fn_start + 1100]
+    fn_start = body.index("if (deployedServiceUrl)")
+    fn_snippet = body[fn_start:fn_start + 1900]
     assert 'getElementById("render-deploy-done-section").style.display = "block"' in fn_snippet
     assert 'getElementById("render-deploy-service-link")' in fn_snippet
-    assert "renderServiceState.service_url" in fn_snippet
+    assert "deployedServiceUrl" in fn_snippet
 
 
 async def test_github_confirm_fetch_leaves_the_page_exactly_once():

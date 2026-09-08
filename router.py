@@ -266,6 +266,22 @@ async def get_session_state(request: Request) -> dict:
                 "service_url": render.get("service_url"),
             },
         }
+    if render and render.get("deployed"):
+        frames["render-deploy"] = {
+            "complete": True, "display": {"service_url": render.get("service_url")}
+        }
+    elif render and render.get("pending_deploy_id"):
+        # A deploy was triggered but hasn't (yet, or ever will) reach
+        # "live" -- resume polling rather than showing the Deploy button
+        # again, same in-between-state shape as supabase's "ref" case
+        # below. pending_deploy_id isn't a credential (Render's own deploy
+        # identifier, like service_id above) -- the frontend's local mirror
+        # needs it to gate the "Check again" button the same way it does
+        # right after an in-page trigger.
+        frames["render-deploy"] = {
+            "complete": False, "provisioning": True,
+            "display": {"pending_deploy_id": render.get("pending_deploy_id")},
+        }
 
     if data.get("dashboard_auth"):
         frames["dashboard-auth"] = {"complete": True, "display": {}}
@@ -729,5 +745,32 @@ async def get_render_deploy_status(request: Request) -> dict:
         render_frame["api_key"], render_frame["service_id"], render_frame["pending_deploy_id"]
     )
     if isinstance(result, render_client.RenderDeployStatus):
+        if result.status == "live":
+            # Best-effort, like trigger-deploy's own write above -- this is
+            # what lets a later GET /api/session (a revisit with no local
+            # sessionStorage mirror left) still report the service as
+            # already deployed instead of showing the Deploy button again.
+            await _update_frame(session_id, "render", {"deployed": True})
         return {"valid": True, "status": result.status}
     return {"valid": False, "reason": result.reason}
+
+
+@router.post("/api/render/clear-deploy-state")
+async def clear_render_deploy_state(request: Request) -> dict:
+    """Called when an earlier frame render-deploy depends on gets changed
+    (static/index.html's lockFrame("render-deploy"), reached via
+    relockDownstreamOf()) -- clears the persisted "deployed"/
+    "pending_deploy_id" flags so a reload mid-redo doesn't resurrect the
+    OLD deploy's done state from GET /api/session. service_id/service_url
+    are left untouched -- they're still valid; only this frame's own
+    resumable state is being invalidated here."""
+    session_id = _get_session_id(request)
+    render_frame = session_id and (await _read_frame(session_id, "render"))
+    if not render_frame or "service_id" not in render_frame:
+        return {"valid": False, "reason": "no_session"}
+    write_result = await _update_frame(
+        session_id, "render", {"deployed": False, "pending_deploy_id": None}
+    )
+    if isinstance(write_result, session_store.SessionNotFound):
+        return {"valid": False, "reason": "no_session"}
+    return {"valid": True}

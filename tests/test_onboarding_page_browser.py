@@ -10,6 +10,7 @@ need to verify real DOM/JS behavior belong here."""
 from __future__ import annotations
 
 import json
+import time
 
 
 def test_page_title_loads_over_a_real_browser(page, live_app_url):
@@ -102,6 +103,100 @@ def test_restore_from_session_resumes_polling_for_a_supabase_project_without_a_c
     page.wait_for_selector("#supabase-provisioning-section", state="visible")
     assert not page.is_visible("#supabase-connect-section")
     assert not page.is_visible("#supabase-org-section")
+
+
+def test_restore_from_session_shows_deployed_service_link_when_server_reports_deployed(
+    page, live_app_url
+):
+    """A revisit with an empty sessionStorage (new device, or the mobile
+    tab-discard scenario the whole server-side-session redesign exists for)
+    must still show the live service link -- not the Deploy button -- once
+    the server itself has recorded the deploy as done. frame-render-deploy
+    starts locked/closed; completeFrame's own keepOpen=true path (already
+    exercised by the live in-page completion) is what opens it here too, so
+    no pre-unlock init script is needed the way the supabase test above
+    needs one."""
+    session_body = {
+        "frames": {
+            "render-deploy": {
+                "complete": True,
+                "display": {"service_url": "https://example.onrender.com"},
+            }
+        }
+    }
+
+    def handle_session(route):
+        route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(session_body)
+        )
+
+    page.route(f"{live_app_url}/api/session", handle_session)
+    page.goto(live_app_url)
+
+    page.wait_for_selector("#render-deploy-done-section", state="visible")
+    assert not page.is_visible("#render-deploy-trigger-section")
+    assert not page.is_visible("#render-deploy-polling-section")
+    link = page.locator("#render-deploy-service-link")
+    assert link.get_attribute("href") == "https://example.onrender.com"
+
+
+def test_restore_from_session_resumes_deploy_polling_when_server_reports_pending(
+    page, live_app_url
+):
+    session_body = {
+        "frames": {
+            "render-deploy": {
+                "complete": False, "provisioning": True,
+                "display": {"pending_deploy_id": "dep-1"},
+            }
+        }
+    }
+
+    def handle_session(route):
+        route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(session_body)
+        )
+
+    def handle_deploy_status(route):
+        # Any non-terminal status -- pollRenderDeployStatus() just
+        # reschedules itself later on "in_progress", which this test
+        # doesn't wait for.
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"valid": True, "status": "in_progress"}),
+        )
+
+    page.route(f"{live_app_url}/api/session", handle_session)
+    page.route(f"{live_app_url}/api/render/deploy-status", handle_deploy_status)
+    page.goto(live_app_url)
+
+    page.wait_for_selector("#render-deploy-polling-section", state="visible")
+    assert not page.is_visible("#render-deploy-trigger-section")
+    assert not page.is_visible("#render-deploy-done-section")
+
+
+def test_changing_an_earlier_frame_clears_the_persisted_deploy_state(page, live_app_url):
+    """lockFrame("render-deploy") -- reached via relockDownstreamOf() when
+    any of render-deploy's real prerequisites is redone -- must clear the
+    server-side "deployed"/"pending_deploy_id" flags too, not just the
+    local sessionStorage mirror; otherwise a reload mid-redo would resurrect
+    the OLD deploy's done state from GET /api/session (see the "deployed"
+    restore test above)."""
+    calls = []
+
+    def handle_clear(route):
+        calls.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body='{"valid": true}')
+
+    page.route(f"{live_app_url}/api/render/clear-deploy-state", handle_clear)
+    page.goto(live_app_url)
+
+    page.evaluate("beginChange('llm-provider')")
+    deadline = time.monotonic() + 2
+    while not calls and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert calls
 
 
 def test_language_switch_sets_dir_for_rtl(page, live_app_url):

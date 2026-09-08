@@ -1827,6 +1827,7 @@
       if (id === "llm-provider") resetLlmProviderSection();
       if (id === "uptime-pinger") resetUptimePingerSection();
       if (id === "render-deploy") {
+        clearRenderDeployState();
         resetRenderDeploySection();
         // Cleared here, not just left stale from a previous completion --
         // guardLockedFrames() would otherwise let this frame be reopened
@@ -1844,7 +1845,11 @@
         // state from the still-present flags, even though a fresh redeploy is
         // actually required. service_id/service_url are left alone -- they're
         // still valid; only render-service's own lockFrame call (a separate,
-        // rarer case) should ever clear those.
+        // rarer case) should ever clear those. clearRenderDeployState() above
+        // clears the server-side copy of the same two flags -- both are
+        // needed, since GET /api/session (restoreFromSession()'s source of
+        // truth for a reload with no local mirror left) now reads the
+        // server-side copy, not just this local one.
         const renderServiceState = readStoredRenderService();
         if (renderServiceState) {
           delete renderServiceState.deployed;
@@ -2021,6 +2026,29 @@
       // best-effort -- a network failure here never blocks the frame
       // change it was triggered by.
       console.warn("UptimeRobot monitor cleanup failed:", "/api/uptimerobot/delete-monitor", "network error");
+    }
+  }
+
+  // Best-effort cleanup for the server-side "deployed"/"pending_deploy_id"
+  // flags on the render frame -- called from lockFrame("render-deploy")
+  // whenever a real prerequisite of the final deploy step gets changed.
+  // Without this, GET /api/session would keep reporting the OLD deploy as
+  // done (see get_session_state's render-deploy block) even though this
+  // frame has just been relocked pending a redo -- a reload mid-redo would
+  // then wrongly show the stale live-URL/done state instead of the Deploy
+  // button. Session-backed (no body), same shape as
+  // cleanupOrphanedUptimeMonitor above.
+  async function clearRenderDeployState() {
+    try {
+      const resp = await fetch("/api/render/clear-deploy-state", {method: "POST"});
+      const body = await resp.json();
+      if (!body.valid) {
+        console.warn("Render deploy-state cleanup failed:", "/api/render/clear-deploy-state", "reason:", body.reason);
+      }
+    } catch (err) {
+      // best-effort -- a network failure here never blocks the frame
+      // change it was triggered by.
+      console.warn("Render deploy-state cleanup failed:", "/api/render/clear-deploy-state", "network error");
     }
   }
 
@@ -3467,12 +3495,40 @@
       completeFrame("uptime-pinger", "restored", null);
     }
 
-    // render-deploy resumption stays local-only: it isn't part of
-    // GET /api/session (deploy progress is tracked live via polling, not
-    // meaningfully "restorable" as instantly done), and the render-service
-    // mirror written just above already carries what it needs.
+    // GET /api/session is the primary source for render-deploy's own
+    // resumption too (2026-09-08 fix -- it used to be local-only, which
+    // left a revisit with no sessionStorage mirror left, e.g. a new device
+    // or the mobile tab-discard scenario the whole server-side-session
+    // redesign exists to guard against, unable to tell the service was
+    // already deployed and showing the Deploy button again even though it
+    // was live). The local mirror (renderServiceState) is still consulted
+    // as a fallback -- a same-tab reload immediately after a live
+    // completion/trigger, before this fetch could persist it server-side,
+    // or the GET /api/session round-trip failing outright (frames stays
+    // {} in that case, from the early return above).
+    const renderDeployFrame = frames["render-deploy"];
     const renderServiceState = readStoredRenderService();
-    if (renderServiceState && renderServiceState.deployed) {
+    const deployedServiceUrl = renderDeployFrame && renderDeployFrame.complete
+      ? renderDeployFrame.display.service_url
+      : renderServiceState && renderServiceState.deployed && renderServiceState.service_url;
+    const pendingDeployId = renderDeployFrame && renderDeployFrame.provisioning
+      ? renderDeployFrame.display.pending_deploy_id
+      : renderServiceState && renderServiceState.pending_deploy_id;
+    if (deployedServiceUrl) {
+      // Keep the local mirror in sync with the server-reported state --
+      // downstream same-page-view code (lockFrame("render-deploy")'s own
+      // local clear on a later redo) already expects to find `deployed`
+      // there the way it does right after a live in-page completion.
+      try {
+        const existing = readStoredRenderService() || {};
+        sessionStorage.setItem(
+          STORAGE_KEYS["render-service"],
+          JSON.stringify({...existing, deployed: true, service_url: deployedServiceUrl}),
+        );
+      } catch (err) {
+        // best-effort -- the frame still shows as done this page view even
+        // if the local mirror can't be written.
+      }
       // render-deploy-trigger-section has no `style="display: none"` in its
       // raw HTML (unlike the polling/done sections) -- the live completion
       // path (triggerRenderDeploy() -> finishRenderDeploy()) never needs to
@@ -3484,11 +3540,21 @@
       document.getElementById("render-deploy-polling-section").style.display = "none";
       document.getElementById("render-deploy-done-section").style.display = "block";
       const link = document.getElementById("render-deploy-service-link");
-      link.href = renderServiceState.service_url || "";
-      link.textContent = renderServiceState.service_url || "";
+      link.href = deployedServiceUrl;
+      link.textContent = deployedServiceUrl;
       completeFrame("render-deploy", null, null, "deploy_done", true);
       renderDeployReachedOnce = true;
-    } else if (renderServiceState && renderServiceState.pending_deploy_id) {
+    } else if (pendingDeployId) {
+      try {
+        const existing = readStoredRenderService() || {};
+        sessionStorage.setItem(
+          STORAGE_KEYS["render-service"],
+          JSON.stringify({...existing, pending_deploy_id: pendingDeployId}),
+        );
+      } catch (err) {
+        // best-effort -- "Check again" just won't be armed this page view
+        // if the local mirror can't be written; the poll below still runs.
+      }
       document.getElementById("render-deploy-trigger-section").style.display = "none";
       document.getElementById("render-deploy-polling-section").style.display = "block";
       // Same gap as the "deployed" branch above, one step earlier: a
