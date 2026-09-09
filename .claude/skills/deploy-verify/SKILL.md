@@ -20,8 +20,9 @@ substitute for this.**
 
 ## When to use
 
-After merging to `main` locally, before pushing/deploying -- always, not
-just when a dependency change "looks" relevant enough to matter.
+Before any push to `main` -- always, regardless of whether the commit
+reaching `main` arrived via a merge or was made directly, and not just
+when a dependency change "looks" relevant enough to matter.
 
 ## How
 
