@@ -1874,13 +1874,14 @@
     if (id === "uptime-pinger") refreshUptimePingerBlockedState();
     if (id === "render-service") prefillRenderServiceDefaults();
     if (id === "github-app") renderGithubAppInstructions();
-    // See renderDeployReachedOnce's own comment (declared further down,
-    // but this runs long after the whole script has parsed) -- covers the
-    // normal first-pass route here (completeFrame's nextFrame chain
-    // unlocking render-deploy after uptime-pinger); restoreFromSession's
-    // direct-completeFrame resume path for an already-deployed session
-    // sets it explicitly since it never calls unlockFrame at all.
-    if (id === "render-deploy") renderDeployReachedOnce = true;
+    // See everReached's own comment (declared further down, but this runs
+    // long after the whole script has parsed) -- covers the normal
+    // first-pass route here (a frame reaching "ready" for the first time,
+    // via either completeFrame's nextFrame chain or maybeUnlockDependentsAfterRedo
+    // itself); restoreFromSession's direct-completeFrame resume path for an
+    // already-done/deployed session marks it there instead, since a
+    // restored frame never calls unlockFrame at all.
+    everReached.add(id);
   }
 
   // Structural dependency graph -- NOT wizard display order -- naming which
@@ -1933,19 +1934,34 @@
     return Object.keys(FRAME_DEPENDENTS).filter((pid) => FRAME_DEPENDENTS[pid].includes(frameId));
   }
 
-  // Set the first time render-deploy is ever unlocked -- via the plain
-  // first-pass nextFrame chain in completeFrame below, or restoreFromSession()
-  // resuming an already-deployed session. Distinguishes "still on the
-  // strict linear first pass" from "the wizard has been all the way
-  // through at least once" (regardless of whether that deploy attempt then
-  // succeeded or failed -- reaching the frame is what matters here, not
-  // completing it). Needed because render-deploy has one real positional-
-  // but-not-functional gap the general mechanism below must not paper
-  // over: uptime-pinger sits before it on the page but isn't one of its
-  // real prerequisites, so a first-time visitor must still be made to fill
-  // in the uptime monitor before ever reaching "Deploy", even though
-  // render-deploy's real prereqs alone would already be satisfied by then.
-  let renderDeployReachedOnce = false;
+  // Every frame id that has ever been unlocked (reached "ready") at least
+  // once, whether via the plain first-pass nextFrame chain in completeFrame,
+  // maybeUnlockDependentsAfterRedo itself, or restoreFromSession() resuming
+  // an already-done/deployed session. This is what distinguishes "still on
+  // the strict linear first pass" (a frame that has never yet been reached,
+  // and so is only "locked" because the wizard hasn't gotten there yet) from
+  // "this frame was reached and completed before, then relocked by a real
+  // redo of something upstream" -- both look identical as
+  // `dataset.locked === "true"`, which is why maybeUnlockDependentsAfterRedo
+  // below cannot use that check alone. Originally tracked with a single
+  // render-deploy-only boolean (renderDeployReachedOnce): render-deploy has
+  // a real positional-but-not-functional gap -- uptime-pinger sits before it
+  // on the page but isn't one of its real FRAME_DEPENDENTS prerequisites, so
+  // a first-time visitor must still be made to fill in the uptime monitor
+  // before ever reaching "Deploy", even though render-deploy's real prereqs
+  // alone could already be satisfied by then. But the exact same shape of
+  // bug turned out to apply to every OTHER dependent too, not just
+  // render-deploy: on a fresh session, completing render-service alone
+  // already satisfies github-app's and uptime-pinger's formal prereqsFor()
+  // (render-key + render-service, both done), so the render-deploy-only
+  // check let maybeUnlockDependentsAfterRedo unlock github-app and
+  // uptime-pinger immediately after render-service -- well before the
+  // linear nextFrame chain would have reached them, and before
+  // dashboard-auth/github-app/supabase/llm-provider were ever done. Gating
+  // on "has this depId ever been reached before" for every frame, not just
+  // render-deploy, is what actually distinguishes first-pass-too-early from
+  // a genuine redo.
+  const everReached = new Set();
 
   // After the wizard has been through at least once, changing an earlier
   // frame relocks only its real dependents (FRAME_DEPENDENTS), which can
@@ -1966,7 +1982,7 @@
   function maybeUnlockDependentsAfterRedo(completedId) {
     (FRAME_DEPENDENTS[completedId] || []).forEach((depId) => {
       if (frameEl(depId).dataset.locked !== "true") return; // already unlocked or done
-      if (depId === "render-deploy" && !renderDeployReachedOnce) return; // still first pass -- let the plain chain handle it
+      if (!everReached.has(depId)) return; // never reached yet -- still first pass, let the plain chain handle it
       if (!prereqsFor(depId).every((pid) => frameState[pid].status === "done")) return;
       unlockFrame(depId);
     });
@@ -1974,6 +1990,10 @@
 
   function completeFrame(id, detailKey, detailValue, status, keepOpen) {
     const el = frameEl(id);
+    // Marks this frame reached even on restoreFromSession()'s direct-call
+    // resume path, which completes an already-done frame without ever
+    // calling unlockFrame -- see everReached's own comment above.
+    everReached.add(id);
     // keepOpen means "must end up visibly open," not just "skip closing" --
     // true on the live in-session path (already open, so setting it again
     // is a no-op), but false on a fresh-reload resume (restoreFromSession(),
@@ -3260,9 +3280,9 @@
     // the last frame, so there's no next step to draw attention to, and the
     // dashboard link just written above is the actual payoff -- collapsing
     // it here would hide the one thing worth seeing at the end of the wizard.
-    // renderDeployReachedOnce is already true by this point -- it's set
-    // when the frame first unlocks (necessarily before it could ever be
-    // completed), not here.
+    // render-deploy is already in everReached by this point -- unlockFrame
+    // added it when the frame first unlocked (necessarily before it could
+    // ever be completed), and completeFrame adds it again regardless.
     completeFrame("render-deploy", null, null, "deploy_done", true);
   }
 
@@ -3547,7 +3567,6 @@
       link.href = deployedServiceUrl;
       link.textContent = deployedServiceUrl;
       completeFrame("render-deploy", null, null, "deploy_done", true);
-      renderDeployReachedOnce = true;
     } else if (pendingDeployId) {
       try {
         const existing = readStoredRenderService() || {};

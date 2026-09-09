@@ -199,6 +199,36 @@ def test_changing_an_earlier_frame_clears_the_persisted_deploy_state(page, live_
     assert calls
 
 
+def test_completing_a_frame_on_a_fresh_first_pass_does_not_unlock_unreached_dependents(
+    page, live_app_url
+):
+    """Regression test for a real bug: on a brand-new session, completing
+    render-service (right after render-key) must only unlock the next
+    positional frame (dashboard-auth) -- github-app and uptime-pinger,
+    both real FRAME_DEPENDENTS of render-service, must stay locked until
+    the wizard actually reaches them, not jump open early just because
+    their formal prereqsFor() (render-key + render-service) already happen
+    to be done this early in a fresh linear run.
+
+    maybeUnlockDependentsAfterRedo used to gate only render-deploy on
+    "has this frame ever been reached before" (the render-deploy-only
+    renderDeployReachedOnce flag) -- every other dependent had no such
+    gate, so on a fresh session it unlocked github-app and uptime-pinger
+    the moment render-service completed, since dataset.locked === "true"
+    is also true for a frame that simply hasn't been reached yet. Gating
+    every dependent on the generalized everReached set fixes this."""
+    page.goto(live_app_url)
+
+    page.evaluate("completeFrame('render-key', 'owner_prefix', 'test-owner')")
+    page.evaluate(
+        "completeFrame('render-service', 'url_prefix', 'https://example.onrender.com')"
+    )
+
+    assert page.eval_on_selector("#frame-dashboard-auth", "el => el.dataset.locked") == "false"
+    assert page.eval_on_selector("#frame-github-app", "el => el.dataset.locked") == "true"
+    assert page.eval_on_selector("#frame-uptime-pinger", "el => el.dataset.locked") == "true"
+
+
 def test_language_switch_sets_dir_for_rtl(page, live_app_url):
     """Replaces tests/test_onboarding_i18n.py's test of the same name,
     which asserted an exact literal source line rather than the actual

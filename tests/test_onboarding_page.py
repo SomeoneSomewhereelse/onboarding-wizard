@@ -196,8 +196,8 @@ async def test_a_redo_of_a_leaf_frame_can_unlock_render_deploy_without_uptime_pi
     body = (await client.get("/")).text
     assert "function maybeUnlockDependentsAfterRedo" in body
     assert "function prereqsFor(frameId)" in body
-    assert "let renderDeployReachedOnce = false;" in body
-    assert 'if (id === "render-deploy") renderDeployReachedOnce = true;' in body
+    assert "const everReached = new Set();" in body
+    assert "everReached.add(id);" in body
     # Called from completeFrame for every frame -- no more render-deploy
     # special case, see the next test for why.
     assert "maybeUnlockDependentsAfterRedo(id);" in body
