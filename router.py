@@ -6,6 +6,7 @@ returns a verdict, never the credential it was given.
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets as _secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ import supabase_client
 import uptimerobot_client
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -134,9 +136,17 @@ class UptimeRobotCreateMonitorRequest(BaseModel):
         relative path "/healthz", which would be POSTed to UptimeRobot as a
         monitor URL. Rejecting it here turns a nonsense monitor (or an
         opaque provider-side 400 surfaced as `request_rejected`) into an
-        honest 422. No shape/regex check beyond strip-then-require-non-empty,
-        since this value is written by the wizard itself (sub-project 6's
-        forward contract), not typed by the visitor.
+        honest 422. No shape/regex check beyond strip-then-require-non-empty:
+        this endpoint takes no session cookie at all (the visitor's
+        UptimeRobot key isn't persisted server-side until after a
+        successful create), so render_service_url IS caller-supplied
+        request-body input here, not something this endpoint reads back
+        from the session -- in the normal wizard UI it's pre-filled from
+        the wizard's own sessionStorage mirror of frame 6's URL (sub-project
+        6's forward contract), but a direct API caller can send anything.
+        Real impact of that is low (UptimeRobot, not this server, is what
+        ends up pinging whatever URL is submitted), but this validator's
+        purpose is honest input hygiene, not authorization.
         """
         value = value.strip()
         if not value:
@@ -255,7 +265,17 @@ def _seed_slot_config(
     the DB has no matching model row, or vice versa.
     """
     try:
-        with psycopg.connect(database_url, connect_timeout=_DB_CONNECT_TIMEOUT) as conn:
+        with psycopg.connect(
+            database_url,
+            connect_timeout=_DB_CONNECT_TIMEOUT,
+            # connect_timeout only bounds the TCP/auth handshake -- these
+            # bound the DDL/INSERT themselves, so a stalled statement (e.g.
+            # a lock wait behind the deployed bot's own concurrent
+            # store.init_pool() creating the same table) can't hang the
+            # shared asyncio.to_thread pool every other session-store call
+            # in this file also uses.
+            options="-c statement_timeout=15000 -c lock_timeout=5000",
+        ) as conn:
             conn.execute(_SLOT_CONFIG_SCHEMA)
             conn.execute(
                 "INSERT INTO slot_config "
@@ -276,7 +296,11 @@ def _seed_slot_config(
                 ),
             )
         return True
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        # A type name only -- never the exception's own message/args, which
+        # for a psycopg connection error can embed the DSN (and therefore
+        # the visitor's db_pass) verbatim.
+        logger.info("slot_config seed failed: %s", type(exc).__name__)
         return False
 
 
@@ -737,7 +761,10 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     per the decision made alongside this redesign, no earlier frame pushes
     to Render incrementally anymore."""
     session_id = _get_session_id(request)
-    render_frame = session_id and (await _read_frame(session_id, "render"))
+    session = session_id and (await _get_session(session_id))
+    if not session:
+        return {"valid": False, "reason": "no_session"}
+    render_frame = session.frames.get("render")
     if not render_frame or "api_key" not in render_frame or "service_id" not in render_frame:
         return {"valid": False, "reason": "no_session"}
 
@@ -751,27 +778,33 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     # guard clause above.
     env_vars["RENDER_API_KEY"] = render_frame["api_key"]
 
-    github_app = (await _read_frame(session_id, "github_app"))
+    github_app = session.frames.get("github_app")
     if github_app:
         env_vars["GITHUB_APP_ID"] = str(github_app["app_id"])
         env_vars["GITHUB_APP_PRIVATE_KEY"] = github_app["private_key_b64"]
         env_vars["GITHUB_WEBHOOK_SECRET"] = github_app["webhook_secret"]
         env_vars["GITHUB_APP_INSTALLATION_ID"] = str(github_app["installation_id"])
 
-    supabase = (await _read_frame(session_id, "supabase"))
+    supabase = session.frames.get("supabase")
     if supabase and "database_url" in supabase:
         env_vars["DATABASE_URL"] = supabase["database_url"]
 
-    llm_provider = (await _read_frame(session_id, "llm_provider"))
+    llm_provider = session.frames.get("llm_provider")
     if llm_provider:
         # Credential only -- no model_var push. active_model() is DB-only
         # over there now (slot_config), so a model var has no Render
         # presence at all (2026-09-08 slotted-config-and-db-delegation).
+        # Credential first, LLM_PROVIDER second: if push_env_vars fails
+        # partway through, every prefix of this dict that made it to
+        # Render is then either "no provider selected yet" (consistent) or
+        # "provider selected with its matching credential already there"
+        # (also consistent) -- never a provider switched on with no
+        # credential for it.
         credential_var, _model_var = _LLM_ENV_VAR_NAMES[llm_provider["provider"]]
-        env_vars["LLM_PROVIDER"] = llm_provider["provider"]
         env_vars[credential_var] = llm_provider["credential_value"]
+        env_vars["LLM_PROVIDER"] = llm_provider["provider"]
 
-    dashboard_auth = (await _read_frame(session_id, "dashboard_auth"))
+    dashboard_auth = session.frames.get("dashboard_auth")
     if dashboard_auth:
         env_vars["DASHBOARD_USERNAME"] = dashboard_auth["username"]
         env_vars["DASHBOARD_PASSWORD"] = dashboard_auth["password"]
@@ -791,21 +824,31 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     # _seed_runtime_config_defaults) -- this wizard is the only thing that
     # can seed them for a freshly-provisioned instance, since it runs
     # before the deployed service ever boots for the first time.
-    if llm_provider and supabase and "database_url" in supabase:
+    if llm_provider:
+        if not supabase or "database_url" not in supabase:
+            # Unreachable in normal sequential flow (the Supabase frame
+            # completes before llm-provider unlocks) -- guards the same
+            # corrupted/hand-edited session-state case the other frames'
+            # "no_session"-shaped refusals guard, rather than silently
+            # pushing a credential with no matching slot_config row.
+            return {"valid": False, "reason": "supabase_not_ready", "pushed": []}
         # No project/location collection UI exists in this wizard (never
         # did) -- vertex_gcp_project stays None so pr-review-bot's own
         # factory.py derives it from the service-account key's embedded
         # project_id, exactly as it already did when this wizard never
         # pushed VERTEX_GCP_PROJECT either. vertex_gcp_location preserves
-        # the same "us-central1" default this wizard used to push as a
-        # plain Render env var, now written to the DB instead.
+        # the same default this wizard used to push as a plain Render env
+        # var, now written to the DB instead -- read from llm_client's own
+        # constant rather than a second hardcoded copy, so the region a
+        # credential's models were validated against during list-models is
+        # always the same region seeded here.
         seeded = await asyncio.to_thread(
             _seed_slot_config,
             supabase["database_url"],
             llm_provider["provider"],
             llm_provider["model"],
             None,
-            "us-central1" if llm_provider["provider"] == "vertex" else None,
+            llm_client._VERTEX_LOCATION if llm_provider["provider"] == "vertex" else None,
         )
         if not seeded:
             return {"valid": False, "reason": "slot_config_seed_failed", "pushed": []}
@@ -842,7 +885,11 @@ async def get_render_deploy_status(request: Request) -> dict:
     session_id = _get_session_id(request)
     render_frame = session_id and (await _read_frame(session_id, "render"))
     required = ("api_key", "service_id", "pending_deploy_id")
-    if not render_frame or not all(k in render_frame for k in required):
+    # .get(k), not "k in render_frame": clear-deploy-state merges
+    # pending_deploy_id=None rather than deleting the key, so a presence-
+    # only check would let a None deploy id reach poll_deploy_status and
+    # surface as a misleading "service not found".
+    if not render_frame or not all(render_frame.get(k) for k in required):
         return {"valid": False, "reason": "no_session"}
     result = await render_client.poll_deploy_status(
         render_frame["api_key"], render_frame["service_id"], render_frame["pending_deploy_id"]

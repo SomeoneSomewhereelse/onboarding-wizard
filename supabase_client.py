@@ -6,8 +6,12 @@ docs/superpowers/specs/2026-09-04-supabase-pat-frame-design.md."""
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import logging
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 SUPABASE_API_BASE = "https://api.supabase.com/v1"
 SUPABASE_REGION_CODE = "us-east-1"
@@ -167,6 +171,14 @@ async def get_project_status(
     return SupabaseProjectStatus(status=status)
 
 
+def _log_session_tag(session_id: str) -> str:
+    """A one-way, non-reversible correlation tag for log lines -- lets an
+    operator match up log entries for the same request without the log
+    ever carrying the session cookie itself (which authenticates every
+    relay endpoint in router.py, so it's a credential, not an id)."""
+    return hashlib.sha256(session_id.encode()).hexdigest()[:8]
+
+
 @dataclasses.dataclass(frozen=True)
 class SupabaseConnectionInfo:
     db_user: str
@@ -195,9 +207,11 @@ async def get_connection_info(
     listed, this falls back to the transaction entry's host/user/name with
     the port forced to 5432 to still get session-mode semantics.
 
-    `session_id` is used only to tag the diagnostic prints below for log
-    correlation -- never logged or sent anywhere itself. It's not a
-    credential."""
+    `session_id` is the onboarding session cookie value -- the sole
+    authenticator for every relay endpoint in router.py, so it IS a
+    credential and must never appear in a log line. The diagnostic logs
+    below tag themselves with a one-way hash of it (`_log_session_tag`)
+    for log correlation instead of the raw value."""
     try:
         async with httpx.AsyncClient(base_url=SUPABASE_API_BASE, timeout=15.0) as client:
             response = await client.get(
@@ -219,7 +233,10 @@ async def get_connection_info(
     try:
         entries = response.json()
     except ValueError:
-        print(f"[DEBUG connection-info session={session_id}] response body did not parse as JSON")
+        logger.info(
+            "connection-info [%s]: response body did not parse as JSON",
+            _log_session_tag(session_id),
+        )
         return SupabaseApiFailed(reason="pooler_config_unavailable")
 
     try:
@@ -260,9 +277,10 @@ async def get_connection_info(
                 shapes = f"entries was a single dict with keys: {sorted(entries)}"
             else:
                 shapes = f"entries was not a list of objects: {type(entries).__name__}"
-        print(
-            f"[DEBUG connection-info session={session_id}] no session/PRIMARY match; "
-            f"entries seen: {shapes}"
+        logger.info(
+            "connection-info [%s]: no session/PRIMARY match; entries seen: %s",
+            _log_session_tag(session_id),
+            shapes,
         )
         return SupabaseApiFailed(reason="pooler_config_unavailable")
     return SupabaseConnectionInfo(

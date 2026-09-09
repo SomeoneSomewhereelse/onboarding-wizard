@@ -1222,6 +1222,7 @@
       err_render_deploy_invalid_key: "That key was rejected by Render. Double-check it and try again.",
       err_render_deploy_service_not_found: "Your Render service could not be found. Try step 2 again.",
       err_render_deploy_unreachable: "Render's API is unreachable right now. Try again in a moment.",
+      err_render_deploy_slot_config: "Couldn't save your LLM provider's configuration to your database. Try again in a moment.",
       err_render_deploy_failed: "The deploy failed. Check your service on Render's dashboard for details.",
       err_render_deploy_canceled: "A newer deploy superseded this one. Click Deploy to check the latest status.",
       err_render_deploy_timeout: "Still deploying after 15 minutes. It may still finish — check again.",
@@ -1374,6 +1375,7 @@
       err_render_deploy_invalid_key: "המפתח נדחה על ידי Render. בדוק אותו ונסה שוב.",
       err_render_deploy_service_not_found: "לא נמצא שירות Render. נסה שוב את שלב 2.",
       err_render_deploy_unreachable: "ה-API של Render אינו זמין כרגע. נסה שוב בעוד רגע.",
+      err_render_deploy_slot_config: "לא ניתן היה לשמור את הגדרות ספק ה-LLM במסד הנתונים שלך. נסה שוב בעוד רגע.",
       err_render_deploy_failed: "הפריסה נכשלה. בדוק את השירות בלוח הבקרה של Render לפרטים.",
       err_render_deploy_canceled: "פריסה חדשה יותר דחתה את זו. לחץ על פרוס כדי לבדוק את הסטטוס העדכני.",
       err_render_deploy_timeout: "עדיין בפריסה אחרי 15 דקות. ייתכן שתסתיים בהמשך — בדוק שוב.",
@@ -2168,7 +2170,7 @@
     submitBtn.style.display = provider ? "block" : "none";
   }
 
-  function showLlmProviderModels(models, provider, credentialFragment, projectId) {
+  function showLlmProviderModels(models, provider, credentialFragment) {
     const select = document.getElementById("llm-provider-model-select");
     select.innerHTML = "";
     if (!models.length) {
@@ -2195,7 +2197,6 @@
     pendingLlmProviderCredential = {
       provider,
       ...credentialFragment,
-      ...(projectId ? {gcp_project: projectId} : {}),
     };
   }
 
@@ -2299,7 +2300,7 @@
       llmProviderErrorForReason(body.reason);
       return;
     }
-    showLlmProviderModels(body.models, provider, credentialFragment, body.project_id);
+    showLlmProviderModels(body.models, provider, credentialFragment);
   }
 
   const LLM_PROVIDER_LABEL_KEY = {
@@ -3217,6 +3218,9 @@
       invalid_key: "err_render_deploy_invalid_key",
       service_not_found: "err_render_deploy_service_not_found",
       render_unreachable: "err_render_deploy_unreachable",
+      no_session: "err_no_session",
+      slot_config_seed_failed: "err_render_deploy_slot_config",
+      supabase_not_ready: "err_no_session",
     };
     renderDeployError(map[reason] || "err_render_deploy_unreachable");
   }

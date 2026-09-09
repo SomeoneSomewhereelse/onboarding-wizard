@@ -846,16 +846,18 @@ optional:**
   name instead of the response's slug would silently point
   `onboarding.renderServiceUrl` (frame 5's forward contract) at a URL
   that doesn't exist.
-- **`VERTEX_GCP_PROJECT` is deliberately never pushed** — this project's own
-  matching default (blank, same as the sibling review-engine project's own)
-  makes an explicit push redundant, and Render rejects an empty value
-  outright. `VERTEX_GCP_LOCATION` **is** pushed (`_GENERIC_OPERATIONAL_ENV_DEFAULTS`
-  above) — the sibling project's own `vertex_gcp_location` default already equals
-  `llm_client.py`'s fixed `_VERTEX_LOCATION` constant (verified), so this is
-  belt-and-suspenders, not redundant in the same sense `VERTEX_GCP_PROJECT` is; an
-  earlier version of this note grouped it with the truly-excluded keys by
-  mistake. Do not stop pushing `VERTEX_GCP_LOCATION`, and do not add `VERTEX_GCP_PROJECT`
-  back, without a concrete reason a default has drifted.
+- **Neither `VERTEX_GCP_PROJECT` nor `VERTEX_GCP_LOCATION` is pushed as a
+  Render env var — both are DB-only now (2026-09-08 slotted-config-and-db-
+  delegation, see the dedicated `slot_config` bullet above).** This
+  superseded an earlier version of this bullet (through 9de5f04) that still
+  said `VERTEX_GCP_LOCATION` **is** pushed via `_GENERIC_OPERATIONAL_ENV_DEFAULTS`
+  — true before that commit, false after it: that dict now holds only
+  `GITHUB_TARGET_REPO`, and location is seeded into `slot_config.vertex_gcp_location`
+  instead (`"us-central1"`, read from `llm_client._VERTEX_LOCATION` so it
+  can't drift from the region a credential's models were actually validated
+  against — not a second hardcoded literal). Do not re-add either var to
+  `_GENERIC_OPERATIONAL_ENV_DEFAULTS` without a concrete reason the
+  slot_config-seeding path has stopped covering it.
 - **`GITHUB_TARGET_REPO` is pushed as `"*"` (2026-09-07), reversing the
   original "never pushed" decision above.** The sibling review-engine
   project's `main.py` lifespan now refuses to boot at all without this set

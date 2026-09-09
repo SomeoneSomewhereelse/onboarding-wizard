@@ -4,6 +4,11 @@ serves the wizard page. See design doc section 5."""
 
 from __future__ import annotations
 
+import importlib.util
+import re
+from pathlib import Path
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 import github_client
@@ -1787,3 +1792,171 @@ async def test_bulk_push_partial_failure_reports_pushed_keys(monkeypatch):
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
     )
     assert resp.json() == {"valid": False, "reason": "invalid_key", "pushed": ["GITHUB_APP_ID"]}
+
+
+async def test_bulk_push_refuses_when_llm_provider_present_without_database_url(monkeypatch):
+    """An llm_provider frame with no matching supabase.database_url must not
+    silently push the credential with no slot_config row to seed it into --
+    that's the exact state the seed-before-push ordering elsewhere in this
+    endpoint exists to prevent. Unreachable in normal sequential flow (the
+    Supabase frame always completes first), but a corrupted/hand-edited
+    session shouldn't get a silent partial push instead of a clear refusal."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
+    )
+
+    def boom(*a, **k):
+        raise AssertionError("push_env_vars must not be called without a database_url")
+
+    monkeypatch.setattr(render_client, "push_env_vars", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": False, "reason": "supabase_not_ready", "pushed": []}
+
+
+async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypatch):
+    """The seeded vertex_gcp_location must track llm_client._VERTEX_LOCATION
+    (the region a credential's models were actually validated against
+    during list-models), not an independently hardcoded literal that could
+    drift from it."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-2.5-flash"},
+    )
+    seeded = {}
+
+    def fake_seed_slot_config(database_url, provider, model, project, location):
+        seeded["location"] = location
+        return True
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(llm_client, "_VERTEX_LOCATION", "some-other-region")
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
+    assert seeded["location"] == "some-other-region"
+
+
+async def test_bulk_push_orders_llm_credential_before_provider_flag(monkeypatch):
+    """If push_env_vars fails partway through, every prefix that already
+    reached Render must be internally consistent -- pushing the credential
+    var before LLM_PROVIDER means a partial push never leaves a provider
+    switched on with no matching credential."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
+    )
+    captured = {}
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        captured["keys"] = list(values.keys())
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(router, "_seed_slot_config", lambda *a, **k: True)
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
+    assert captured["keys"].index("GEMINI_API_KEY") < captured["keys"].index("LLM_PROVIDER")
+
+
+async def test_bulk_push_reads_the_session_exactly_once(monkeypatch):
+    """Reads every frame off one _get_session call rather than one
+    _read_frame (and therefore one full session fetch+decrypt) per frame --
+    5 round-trips collapsed into 1."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    calls = {"n": 0}
+    real_get_session = fake.get_session
+
+    def counting_get_session(sid):
+        calls["n"] += 1
+        return real_get_session(sid)
+
+    monkeypatch.setattr(session_store, "get_session", counting_get_session)
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
+    assert calls["n"] == 1
+
+
+async def test_deploy_status_endpoint_with_cleared_pending_deploy_id_fails_closed(monkeypatch):
+    """clear-deploy-state merges pending_deploy_id=None rather than deleting
+    the key -- a presence-only guard here would let that None reach
+    poll_deploy_status and surface as a misleading 'service not found'."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "render",
+        {"api_key": "rnd_x", "service_id": "srv-1", "pending_deploy_id": None},
+    )
+
+    def boom(*a, **k):
+        raise AssertionError("poll_deploy_status must not be called with no pending_deploy_id")
+
+    monkeypatch.setattr(render_client, "poll_deploy_status", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/deploy-status", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": False, "reason": "no_session"}
+
+
+_PR_REVIEW_BOT = Path.home() / "pr-review-bot"
+
+
+@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
+def test_llm_env_var_names_match_pr_review_bot_registry():
+    """_LLM_ENV_VAR_NAMES is a hand-synced duplicate of that project's
+    providers/registry.py::PROVIDERS (see router.py's comment above the
+    dict) -- nothing automated ties the two together, so a rename over
+    there (as already happened once, see CLAUDE.md) can silently drift out
+    of sync here. registry.py has no imports beyond `__future__`, so it's
+    safe to load directly without the rest of that project's dependencies."""
+    spec = importlib.util.spec_from_file_location(
+        "_pr_review_bot_registry", _PR_REVIEW_BOT / "providers" / "registry.py"
+    )
+    registry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(registry)
+    assert router._LLM_ENV_VAR_NAMES == registry.PROVIDERS
+
+
+@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
+def test_slot_config_schema_matches_pr_review_bot_store():
+    """_SLOT_CONFIG_SCHEMA is a hand-synced duplicate of that project's
+    review_queue/store.py::_SCHEMA's slot_config table (see router.py's
+    comment above the constant). A shape mismatch is the worst kind of
+    drift here: CREATE TABLE IF NOT EXISTS never corrects an
+    already-provisioned database, so a divergent schema seeded by this
+    wizard would stay permanently incompatible with what that project's own
+    store.py expects to read. Extracted as text (not imported) since
+    store.py pulls in that project's full config/db-pool dependency chain."""
+    store_source = (_PR_REVIEW_BOT / "review_queue" / "store.py").read_text(encoding="utf-8")
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS slot_config \(.*?ENABLE ROW LEVEL SECURITY;",
+        store_source,
+        re.DOTALL,
+    )
+    assert match, "slot_config table definition not found in pr-review-bot's store.py"
+    assert match.group(0).split() == router._SLOT_CONFIG_SCHEMA.split()
