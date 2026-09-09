@@ -1704,6 +1704,64 @@ def test_seed_provider_config_writes_the_right_key_index_column_per_provider(
     assert row == [("vertex", None, None, 0)]
 
 
+def test_seed_provider_config_writes_the_dispatcher_tuning_defaults(db_url, db_exec, db_query):
+    """The 9 dispatcher/timeout tuning knobs (plus cooldown/review-draft) must
+    land as real values, not NULL, on the row this call creates -- pr-review-
+    bot's own boot no longer seeds any default for them (2026-09-09,
+    ISSUES.md both repos), so this wizard writing a complete row is what
+    keeps a freshly-provisioned instance from refusing to boot at all."""
+    db_exec("DELETE FROM runtime_config WHERE id = 1")
+    ok = router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
+    assert ok is True
+    row = db_query(
+        "SELECT llm_request_timeout_seconds, dispatcher_default_retry_after_seconds, "
+        "dispatcher_failure_base_backoff_seconds, dispatcher_failure_max_backoff_seconds, "
+        "dispatcher_max_failure_attempts, dispatcher_max_notice_post_attempts, "
+        "dispatcher_min_retry_after_seconds, dispatcher_backoff_jitter_seconds, "
+        "dispatcher_notice_sweep_batch_size, dispatcher_idle_sleep_seconds, "
+        "cooldown_base_seconds, cooldown_max_seconds, cooldown_factor, "
+        "key_usage_reset_time_utc, review_draft_prs, key_usage_token_cap "
+        "FROM runtime_config WHERE id = 1"
+    )
+    assert row == [
+        (
+            router._RUNTIME_CONFIG_DEFAULTS["llm_request_timeout_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_default_retry_after_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_failure_base_backoff_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_failure_max_backoff_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_max_failure_attempts"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_max_notice_post_attempts"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_min_retry_after_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_backoff_jitter_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_notice_sweep_batch_size"],
+            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_idle_sleep_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["cooldown_base_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["cooldown_max_seconds"],
+            router._RUNTIME_CONFIG_DEFAULTS["cooldown_factor"],
+            router._RUNTIME_CONFIG_DEFAULTS["key_usage_reset_time_utc"],
+            router._RUNTIME_CONFIG_DEFAULTS["review_draft_prs"],
+            None,  # key_usage_token_cap: Settings' own default is "no cap"
+        )
+    ]
+
+
+def test_seed_provider_config_never_overwrites_an_operator_set_tuning_value(
+    db_url, db_exec, db_query
+):
+    """A redo of the LLM-provider frame after the service has already booted
+    once (and an operator has since customized dispatcher tuning through the
+    dashboard) must not silently reset that value back to this wizard's own
+    default -- runtime_config is DB-only, sole source of truth; this call's
+    COALESCE-based upsert may only fill a column that is still NULL."""
+    db_exec("DELETE FROM runtime_config WHERE id = 1")
+    router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
+    db_exec("UPDATE runtime_config SET dispatcher_idle_sleep_seconds = 42.0 WHERE id = 1")
+    ok = router._seed_provider_config(db_url, "groq", "new-model", None, None)
+    assert ok is True
+    row = db_query("SELECT dispatcher_idle_sleep_seconds FROM runtime_config WHERE id = 1")
+    assert row == [(42.0,)]
+
+
 def test_seed_provider_config_returns_false_on_an_unreachable_database():
     ok = router._seed_provider_config(
         "postgresql://u:p@localhost:1/nonexistent", "groq", "x", None, None

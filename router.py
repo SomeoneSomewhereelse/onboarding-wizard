@@ -292,6 +292,48 @@ CREATE TABLE IF NOT EXISTS runtime_config (
 ALTER TABLE runtime_config ENABLE ROW LEVEL SECURITY;
 """
 
+# Duplicated (not imported) from the sibling review-engine project's
+# (~/pr-review-bot) config.py Settings field defaults -- same
+# duplication-not-import convention as _LLM_ENV_VAR_NAMES/
+# _GENERIC_OPERATIONAL_ENV_DEFAULTS/the schema constants above, kept in sync
+# by hand.
+#
+# _seed_provider_config below writes these into runtime_config the ONE time
+# it creates that row -- not a standing runtime default-fallback. Until
+# 2026-09-09 this wizard wrote only provider/key_index/updated_at, leaving
+# these 16 columns NULL forever: pr-review-bot's own first-boot seed
+# (store.py::_seed_runtime_config_defaults, since removed) used
+# `ON CONFLICT (id) DO NOTHING`, which silently no-opped against the row
+# this wizard had already created, and every PR review on that deployment
+# got stuck forever behind a "Dispatcher configuration issue" comment that
+# never actually resolved (ISSUES.md 2026-09-09, both repos). The fix on
+# pr-review-bot's side was to stop seeding defaults at boot entirely and
+# fail loudly instead (main.py's lifespan now refuses to start without a
+# complete row) -- which makes writing a complete row here, once, at
+# provisioning time, load-bearing rather than a nice-to-have.
+#
+# key_usage_token_cap is deliberately NOT included/left NULL: None is
+# Settings' own default for it (no cap), and usage_cap_config.py treats a
+# None cap paired with a real reset time as "intentionally disabled", a
+# valid configured state, not "unset" -- there is nothing to seed.
+_RUNTIME_CONFIG_DEFAULTS: dict[str, float | int | bool | str] = {
+    "cooldown_base_seconds": 300.0,
+    "cooldown_max_seconds": 3600.0,
+    "cooldown_factor": 2.0,
+    "key_usage_reset_time_utc": "04:00:00",
+    "review_draft_prs": False,
+    "llm_request_timeout_seconds": 45.0,
+    "dispatcher_default_retry_after_seconds": 60.0,
+    "dispatcher_failure_base_backoff_seconds": 2.0,
+    "dispatcher_failure_max_backoff_seconds": 300.0,
+    "dispatcher_max_failure_attempts": 5,
+    "dispatcher_max_notice_post_attempts": 3,
+    "dispatcher_min_retry_after_seconds": 1.0,
+    "dispatcher_backoff_jitter_seconds": 0.0,
+    "dispatcher_notice_sweep_batch_size": 20,
+    "dispatcher_idle_sleep_seconds": 1.0,
+}
+
 _DB_CONNECT_TIMEOUT = 10
 
 
@@ -354,16 +396,38 @@ def _seed_provider_config(
                 (provider, model, vertex_gcp_project, vertex_gcp_location, now),
             )
             # key_index_column is looked up through _KEY_INDEX_COLUMNS above,
-            # never built from `provider` directly -- that dict IS the
-            # injection guard for this f-string.
+            # and the tuning/cooldown/usage/review-draft column names come
+            # only from _RUNTIME_CONFIG_DEFAULTS's own literal keys -- never
+            # built from `provider` or any other caller-influenced value --
+            # so this dict (like _KEY_INDEX_COLUMNS) IS the injection guard
+            # for the f-strings below.
+            #
+            # provider/{key_index_column}/updated_at are unconditionally
+            # overwritten on every call (a redo of the LLM-provider frame
+            # really is a reconfiguration of those three). Every other
+            # column uses COALESCE(current, new) instead of a plain
+            # overwrite -- filled only the first time this row is created,
+            # never clobbering a value an operator has since set through the
+            # dashboard on a redo that happens after the service has already
+            # booted once (see _RUNTIME_CONFIG_DEFAULTS's docstring-comment
+            # above: this is a one-time seed, not a standing default
+            # fallback).
+            _defaults_columns = tuple(_RUNTIME_CONFIG_DEFAULTS)
             conn.execute(
-                f"INSERT INTO runtime_config (id, provider, {key_index_column}, updated_at) "
-                f"VALUES (1, %s, 0, %s) "
-                f"ON CONFLICT (id) DO UPDATE SET "
-                f"provider = EXCLUDED.provider, "
+                "INSERT INTO runtime_config "
+                f"(id, provider, {key_index_column}, updated_at, "
+                f"{', '.join(_defaults_columns)}) "
+                "VALUES (1, %s, 0, %s, "
+                f"{', '.join(['%s'] * len(_defaults_columns))}) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "provider = EXCLUDED.provider, "
                 f"{key_index_column} = EXCLUDED.{key_index_column}, "
-                f"updated_at = EXCLUDED.updated_at",
-                (provider, now),
+                "updated_at = EXCLUDED.updated_at, "
+                + ", ".join(
+                    f"{col} = COALESCE(runtime_config.{col}, EXCLUDED.{col})"
+                    for col in _defaults_columns
+                ),
+                (provider, now, *(_RUNTIME_CONFIG_DEFAULTS[col] for col in _defaults_columns)),
             )
         return True
     except Exception as exc:  # noqa: BLE001

@@ -20,8 +20,28 @@ jobs:
           --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test"
+      PR_REVIEW_BOT_PATH: ${{ github.workspace }}/pr-review-bot
     steps:
       - uses: actions/checkout@v7
+
+      # Pinned (not `main`) so this repo's CI never goes red for an
+      # unrelated pr-review-bot change -- bump .ci/pr-review-bot-ref
+      # deliberately, like a dependency version bump, when the two need to
+      # move together. Powers tests/test_cross_repo_config_ordering.py,
+      # which cross-validates the runtime_config/slot_config schemas these
+      # two repos hand-duplicate and replays the real wizard-seed-then-
+      # bot-boot chronology against a live Postgres (see ISSUES.md
+      # 2026-09-09 for the bug this exists to catch).
+      - name: Read pinned pr-review-bot ref
+        id: pr_review_bot_ref
+        run: echo "sha=$(cat .ci/pr-review-bot-ref)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pr-review-bot
+        uses: actions/checkout@v7
+        with:
+          repository: TovTechOrg/pr-review-bot
+          ref: ${{ steps.pr_review_bot_ref.outputs.sha }}
+          path: pr-review-bot
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
@@ -30,6 +50,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Install pr-review-bot's dependencies
+        working-directory: pr-review-bot
         run: uv sync --all-extras --dev
 
       - name: Install Playwright's Chromium browser

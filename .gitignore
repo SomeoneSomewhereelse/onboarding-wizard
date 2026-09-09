@@ -11,6 +11,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# CI checks out the sibling pr-review-bot repo here (see
+# .github/workflows/ci.yml and tests/test_cross_repo_config_ordering.py) --
+# never this repo's own content.
+/pr-review-bot/
+
 # Local session state (machine-specific, not shared)
 memory.md
 auth-link.txt

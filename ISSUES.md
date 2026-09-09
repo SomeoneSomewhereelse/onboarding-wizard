@@ -239,6 +239,30 @@ accidentally exercise the refusal path instead of the real one._
 - **Follow-up:** Add a sentence to README's "Local development" section noting that running the full suite locally without a `DATABASE_URL` set requires Docker (for testcontainers' throwaway Postgres) — both for `db`-marked tests (pre-existing) and now `browser`-marked tests (new).
 - **Update (2026-09-06):** closed — sentence added to README's "Local development" section, right after the `uv run pytest -v`/`uv run ruff check .` code block, naming both `-m db` and `-m browser`, a link to Docker Desktop (confirmed supported — `testcontainers` just needs a reachable Docker daemon, which Docker Desktop's WSL2 integration provides the same as Docker Engine), and the `DATABASE_URL`-set escape hatch.
 
+### `~/pr-review-bot`: `store.effective_cooldown()` can raise an unguarded `TypeError` on a NULL cooldown triple, reachable after a review is already posted
+- **Found during:** 2026-09-09 code-correctness review (Opus, no subagents) of the cross-repo `runtime_config` ordering bug (see the main entry above and both repos' commit history around that date).
+- **What:** `cooldown_config.effective_config()` returns `(None, None, None)` when the cooldown columns are unset; `store.effective_cooldown()` (`~/pr-review-bot/review_queue/store.py`) has no None-guard around `base * factor ** level`, so `None ** int` raises `TypeError`. One call site (`dispatcher.py`, in the post-review finalize step) runs *after* `attempt_review` has already paid for the LLM call and posted the comment, so the `TypeError` escapes into the dispatcher's blanket exception handler and the ticket is never finalized — it's stuck `status='running'` forever and re-runs (re-paying for the review) on every process restart.
+- **Why parked:** Out of scope for the boot-gate fix just shipped (that fix only covers the 9 dispatcher tuning knobs, not cooldown) — needs its own fix in `~/pr-review-bot`, not this repo.
+- **Follow-up:** Add a named error (mirroring `TuningConfigUnavailable`) in `cooldown_config`/`store.effective_cooldown`, and have `dispatcher.py` defer before the review runs (or finalize safely) rather than let the `TypeError` escape. Tracked for a future `~/pr-review-bot` fix, not this repo's own batch.
+
+### `~/pr-review-bot`: per-key usage cap fails open silently when `key_usage_reset_time_utc` is unset
+- **Found during:** Same 2026-09-09 review as above.
+- **What:** `dispatcher.py`'s usage-cap check is `if token_cap is not None: ...` — when `key_usage_reset_time_utc` is NULL (which `usage_cap_config.effective_caps()` treats as "genuinely not yet configured"), the cap is simply never enforced, with no log line or visible signal. This wizard's `_seed_provider_config` now seeds `key_usage_reset_time_utc` with a real default (`"04:00:00"`, matching `~/pr-review-bot`'s own `Settings.key_usage_reset_time_utc` default) precisely so this can't happen for a wizard-provisioned instance going forward, but the silent-fail-open behavior itself is still a `~/pr-review-bot`-side design gap for any other path that leaves the column NULL (e.g. a hand-provisioned database that skips `--sync-config-db`).
+- **Why parked:** Not a regression from this batch's changes, and not reachable for a wizard-provisioned instance anymore now that the seed always writes a valid reset time — a `~/pr-review-bot` hardening item, not something to fix from this repo.
+- **Follow-up:** Consider having `dispatcher.py` log (or defer, matching the tuning-knob precedent) when `key_usage_reset_time_utc` is unset, rather than treating it identically to "cap intentionally disabled."
+
+### `~/pr-review-bot`: `review_draft_prs = NULL` routes draft-PR reviews through hard-failure/retry-exhaustion instead of the soft config-deferral path
+- **Found during:** Same 2026-09-09 review as above.
+- **What:** `orchestrator.py` raises a plain `RuntimeError` for a draft PR when `store.get_review_draft_override()` is `None`, and that `RuntimeError` is routed through the dispatcher's hard-failure path (burns `dispatcher_max_failure_attempts` retries, eventually `mark_failed`) rather than the same soft, indefinitely-retried deferral `TuningConfigUnavailable` gets. This wizard's seed now always writes a real `review_draft_prs` value (`false`, matching `Settings.review_draft_prs`'s own default), so this isn't reachable for a wizard-provisioned instance going forward.
+- **Why parked:** Same reasoning as the usage-cap entry above — mitigated for this wizard's own output, but the underlying inconsistent-failure-mode design gap lives in `~/pr-review-bot`.
+- **Follow-up:** Consider routing this case through the same soft-deferral path `TuningConfigUnavailable` uses, for consistency, in a future `~/pr-review-bot` change.
+
+### Redoing the LLM-provider frame leaves a stale credential on Render and a stale `slot_config`/`*_key_index` row for the old provider
+- **Found during:** Same 2026-09-09 review as above.
+- **What:** `_seed_provider_config` only ever writes the *new* provider's own credential/slot/key-index; switching e.g. gemini → groq leaves `GEMINI_API_KEY` live on the Render service (never deleted, `render_client.push_env_vars` has no delete path) and a stale `slot_config` row / `gemini_key_index = 0` behind in the DB. Confirmed behaviorally inert (the bot only ever reads the *active* provider's slot/index), but it's an unrevoked secret sitting on the live service and stale-looking state in the dashboard's Environment tab.
+- **Why parked:** Low severity, hygiene-only, no functional impact; not part of the ordering-bug fix this batch addressed.
+- **Follow-up:** If ever addressed, have the LLM-provider frame's redo path explicitly clear the previous provider's Render env var(s) and `slot_config`/`*_key_index` row when switching providers.
+
 ---
 
 ## Design Gaps
