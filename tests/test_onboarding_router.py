@@ -1585,12 +1585,12 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         captured["values"] = values
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
-    def fake_seed_slot_config(database_url, provider, model, project, location):
+    def fake_seed_provider_config(database_url, provider, model, project, location):
         seeded["args"] = (database_url, provider, model, project, location)
         return True
 
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
-    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     client = await _client()
     resp = await client.post(
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
@@ -1603,7 +1603,6 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         "GITHUB_WEBHOOK_SECRET": "wh",
         "GITHUB_APP_INSTALLATION_ID": "42",
         "DATABASE_URL": "postgresql://x",
-        "LLM_PROVIDER": "gemini",
         "GEMINI_API_KEY": "AIza-x",
         "DASHBOARD_USERNAME": "admin",
         "DASHBOARD_PASSWORD": "pw123456",
@@ -1660,28 +1659,53 @@ async def test_bulk_push_includes_github_target_repo_wildcard(monkeypatch):
     assert captured["values"]["GITHUB_TARGET_REPO"] == "*"
 
 
-def test_seed_slot_config_writes_a_real_row(db_url, db_query):
-    ok = router._seed_slot_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
+def test_seed_provider_config_writes_a_real_row(db_url, db_query):
+    ok = router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
     assert ok is True
     row = db_query(
         "SELECT model, vertex_gcp_project, vertex_gcp_location "
         "FROM slot_config WHERE provider = 'groq' AND slot_index = 0"
     )
     assert row == [("llama-3.3-70b-versatile", None, None)]
+    row = db_query("SELECT provider, groq_key_index FROM runtime_config WHERE id = 1")
+    assert row == [("groq", 0)]
 
 
-def test_seed_slot_config_upserts_on_a_second_call(db_url, db_query):
-    router._seed_slot_config(db_url, "groq", "stale-model", None, None)
-    ok = router._seed_slot_config(db_url, "groq", "new-model", None, None)
+def test_seed_provider_config_upserts_on_a_second_call(db_url, db_query):
+    router._seed_provider_config(db_url, "groq", "stale-model", None, None)
+    ok = router._seed_provider_config(db_url, "groq", "new-model", None, None)
     assert ok is True
     row = db_query(
         "SELECT model FROM slot_config WHERE provider = 'groq' AND slot_index = 0"
     )
     assert row == [("new-model",)]
+    row = db_query("SELECT provider, groq_key_index FROM runtime_config WHERE id = 1")
+    assert row == [("groq", 0)]
 
 
-def test_seed_slot_config_returns_false_on_an_unreachable_database():
-    ok = router._seed_slot_config(
+def test_seed_provider_config_writes_the_right_key_index_column_per_provider(
+    db_url, db_query, db_exec
+):
+    """runtime_config has one *_key_index column per provider -- a wrong
+    lookup would silently write to the wrong column instead of the one
+    actually being configured. runtime_config is a singleton row this
+    wizard's own conftest doesn't truncate between tests (it belongs to the
+    simulated visitor's own external database, not the wizard's session
+    store) -- cleared here explicitly so an earlier test's leftover
+    gemini_key_index/groq_key_index value can't be mistaken for something
+    this call wrote."""
+    db_exec("DELETE FROM runtime_config WHERE id = 1")
+    ok = router._seed_provider_config(db_url, "vertex", "gemini-2.5-flash", None, "us-central1")
+    assert ok is True
+    row = db_query(
+        "SELECT provider, gemini_key_index, groq_key_index, vertex_key_index "
+        "FROM runtime_config WHERE id = 1"
+    )
+    assert row == [("vertex", None, None, 0)]
+
+
+def test_seed_provider_config_returns_false_on_an_unreachable_database():
+    ok = router._seed_provider_config(
         "postgresql://u:p@localhost:1/nonexistent", "groq", "x", None, None
     )
     assert ok is False
@@ -1703,14 +1727,14 @@ async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
     )
     seeded = {}
 
-    def fake_seed_slot_config(database_url, provider, model, project, location):
+    def fake_seed_provider_config(database_url, provider, model, project, location):
         seeded["args"] = (database_url, provider, model, project, location)
         return True
 
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
-    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
     client = await _client()
     resp = await client.post(
@@ -1735,13 +1759,13 @@ async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
         {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
     )
 
-    def fake_seed_slot_config(database_url, provider, model, project, location):
+    def fake_seed_provider_config(database_url, provider, model, project, location):
         return False
 
     def boom(*a, **k):
         raise AssertionError("push_env_vars must not be called when the DB seed failed")
 
-    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(render_client, "push_env_vars", boom)
     client = await _client()
     resp = await client.post(
@@ -1835,45 +1859,19 @@ async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypa
     )
     seeded = {}
 
-    def fake_seed_slot_config(database_url, provider, model, project, location):
+    def fake_seed_provider_config(database_url, provider, model, project, location):
         seeded["location"] = location
         return True
 
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
-    monkeypatch.setattr(router, "_seed_slot_config", fake_seed_slot_config)
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(llm_client, "_VERTEX_LOCATION", "some-other-region")
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
     client = await _client()
     await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
     assert seeded["location"] == "some-other-region"
-
-
-async def test_bulk_push_orders_llm_credential_before_provider_flag(monkeypatch):
-    """If push_env_vars fails partway through, every prefix that already
-    reached Render must be internally consistent -- pushing the credential
-    var before LLM_PROVIDER means a partial push never leaves a provider
-    switched on with no matching credential."""
-    fake = _use_fake_session_store(monkeypatch)
-    session_id = fake.create_session()
-    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
-    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
-    fake.update_frame(
-        session_id, "llm_provider",
-        {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
-    )
-    captured = {}
-
-    async def fake_push_env_vars(api_key, service_id, values):
-        captured["keys"] = list(values.keys())
-        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
-
-    monkeypatch.setattr(router, "_seed_slot_config", lambda *a, **k: True)
-    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
-    client = await _client()
-    await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
-    assert captured["keys"].index("GEMINI_API_KEY") < captured["keys"].index("LLM_PROVIDER")
 
 
 async def test_bulk_push_reads_the_session_exactly_once(monkeypatch):

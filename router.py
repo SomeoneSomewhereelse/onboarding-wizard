@@ -182,6 +182,19 @@ _LLM_ENV_VAR_NAMES = {
     "vertex": ("VERTEX_GCP_SERVICE_ACCOUNT_KEY", "VERTEX_MODEL"),
 }
 
+# Duplicated (not imported) from the sibling review-engine project's
+# (~/pr-review-bot) providers/registry.py::KEY_INDEX_COLUMNS -- same
+# duplication-not-import convention as _LLM_ENV_VAR_NAMES above. A hardcoded
+# whitelist, not a naming convention derived at call time -- _seed_provider_config
+# below looks the column name up through this dict rather than building it
+# from `provider`, so this dict IS the injection guard, mirroring the
+# reasoning given for KEY_INDEX_COLUMNS itself over there.
+_KEY_INDEX_COLUMNS = {
+    "gemini": "gemini_key_index",
+    "groq": "groq_key_index",
+    "vertex": "vertex_key_index",
+}
+
 # The sibling review-engine project's (~/pr-review-bot) config.py's
 # OPERATIONAL_KEYS tuning knobs that its deploy.py's --sync-env pushes as
 # Render env vars (its _GENERIC_OPERATIONAL_ENV_ATTRS), with their
@@ -238,32 +251,81 @@ CREATE TABLE IF NOT EXISTS slot_config (
 ALTER TABLE slot_config ENABLE ROW LEVEL SECURITY;
 """
 
+# Duplicated (not imported) from the sibling review-engine project's
+# (~/pr-review-bot) review_queue/store.py::RUNTIME_CONFIG_COLUMNS -- same
+# duplication-not-import convention as _SLOT_CONFIG_SCHEMA above, and for the
+# same reason: a freshly-provisioned Supabase database has no schema at all
+# yet (that project's own store.init_pool() is what normally creates it, on
+# the deployed service's first boot), and this wizard runs BEFORE that first
+# boot. This must be the FULL column set, not just (id, provider,
+# *_key_index): CREATE TABLE IF NOT EXISTS is a no-op against a table that
+# already exists, so if the wizard created a narrower table here first, that
+# project's own store.init_pool() would never widen it later -- its first
+# _seed_runtime_config_defaults() INSERT would then fail outright, naming a
+# column (e.g. cooldown_base_seconds) this table never had. Keep this in
+# sync by hand with RUNTIME_CONFIG_COLUMNS if it ever changes there.
+_RUNTIME_CONFIG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS runtime_config (
+    id                                       INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    provider                                 TEXT,
+    updated_at                               TEXT NOT NULL,
+    cooldown_base_seconds                    DOUBLE PRECISION,
+    cooldown_max_seconds                     DOUBLE PRECISION,
+    cooldown_factor                          DOUBLE PRECISION,
+    gemini_key_index                         INTEGER,
+    groq_key_index                           INTEGER,
+    vertex_key_index                         INTEGER,
+    key_usage_token_cap                      INTEGER,
+    key_usage_reset_time_utc                 TEXT,
+    review_draft_prs                         BOOLEAN,
+    llm_request_timeout_seconds              DOUBLE PRECISION,
+    dispatcher_default_retry_after_seconds   DOUBLE PRECISION,
+    dispatcher_failure_base_backoff_seconds  DOUBLE PRECISION,
+    dispatcher_failure_max_backoff_seconds   DOUBLE PRECISION,
+    dispatcher_max_failure_attempts          INTEGER,
+    dispatcher_max_notice_post_attempts      INTEGER,
+    dispatcher_min_retry_after_seconds       DOUBLE PRECISION,
+    dispatcher_backoff_jitter_seconds        DOUBLE PRECISION,
+    dispatcher_notice_sweep_batch_size       INTEGER,
+    dispatcher_idle_sleep_seconds            DOUBLE PRECISION
+);
+ALTER TABLE runtime_config ENABLE ROW LEVEL SECURITY;
+"""
+
 _DB_CONNECT_TIMEOUT = 10
 
 
-def _seed_slot_config(
+def _seed_provider_config(
     database_url: str,
     provider: str,
     model: str,
     vertex_gcp_project: str | None,
     vertex_gcp_location: str | None,
 ) -> bool:
-    """Write slot 0's model (and for vertex, project/location) directly into
-    the newly-provisioned instance's own database -- see
+    """Write slot 0's model (and for vertex, project/location) into
+    slot_config, and provider/key_index (always 0) into runtime_config,
+    directly into the newly-provisioned instance's own database -- see
     docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-
-    design.md section 5: a wizard-provisioned service must never boot into
-    "no env fallback, no DB row either" for its own just-configured
-    provider. Always slot 0: this wizard has no UI for choosing a numbered
-    credential slot, it only ever provisions the base credential.
+    design.md section 5 and pr-review-bot's docs/superpowers/specs/2026-09-09-
+    provider-key-index-db-only-design.md (which generalized that design's
+    DB-only treatment from model to provider selection itself): a
+    wizard-provisioned service must never boot into "no env fallback, no DB
+    row either" for its own just-configured provider. Always slot 0: this
+    wizard has no UI for choosing a numbered credential slot, it only ever
+    provisions the base credential.
 
-    Raw, short-timeout connection (not a pool) -- a one-shot provisioning
-    step, same reason pr-review-bot's own scripts/deploy.py avoids
+    Both writes share one connection/transaction -- a failure partway
+    through must never leave slot_config seeded with no matching
+    runtime_config.provider, or vice versa. Raw, short-timeout connection
+    (not a pool) -- a one-shot provisioning step,
+    same reason pr-review-bot's own scripts/deploy.py avoids
     store.init_pool()'s 30s pool timeout for this kind of single write.
     Returns True on success, False on any failure (never raises) -- the
     caller reports this the same way it reports a Render push failure, so
     the visitor cannot reach a state where Render has the credential but
-    the DB has no matching model row, or vice versa.
+    the DB has no matching model/provider row, or vice versa.
     """
+    key_index_column = _KEY_INDEX_COLUMNS[provider]
     try:
         with psycopg.connect(
             database_url,
@@ -277,6 +339,8 @@ def _seed_slot_config(
             options="-c statement_timeout=15000 -c lock_timeout=5000",
         ) as conn:
             conn.execute(_SLOT_CONFIG_SCHEMA)
+            conn.execute(_RUNTIME_CONFIG_SCHEMA)
+            now = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 "INSERT INTO slot_config "
                 "(provider, slot_index, model, vertex_gcp_project, vertex_gcp_location, "
@@ -287,20 +351,26 @@ def _seed_slot_config(
                 "vertex_gcp_project = EXCLUDED.vertex_gcp_project, "
                 "vertex_gcp_location = EXCLUDED.vertex_gcp_location, "
                 "updated_at = EXCLUDED.updated_at",
-                (
-                    provider,
-                    model,
-                    vertex_gcp_project,
-                    vertex_gcp_location,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
+                (provider, model, vertex_gcp_project, vertex_gcp_location, now),
+            )
+            # key_index_column is looked up through _KEY_INDEX_COLUMNS above,
+            # never built from `provider` directly -- that dict IS the
+            # injection guard for this f-string.
+            conn.execute(
+                f"INSERT INTO runtime_config (id, provider, {key_index_column}, updated_at) "
+                f"VALUES (1, %s, 0, %s) "
+                f"ON CONFLICT (id) DO UPDATE SET "
+                f"provider = EXCLUDED.provider, "
+                f"{key_index_column} = EXCLUDED.{key_index_column}, "
+                f"updated_at = EXCLUDED.updated_at",
+                (provider, now),
             )
         return True
     except Exception as exc:  # noqa: BLE001
         # A type name only -- never the exception's own message/args, which
         # for a psycopg connection error can embed the DSN (and therefore
         # the visitor's db_pass) verbatim.
-        logger.info("slot_config seed failed: %s", type(exc).__name__)
+        logger.info("provider config seed failed: %s", type(exc).__name__)
         return False
 
 
@@ -791,18 +861,15 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
 
     llm_provider = session.frames.get("llm_provider")
     if llm_provider:
-        # Credential only -- no model_var push. active_model() is DB-only
-        # over there now (slot_config), so a model var has no Render
-        # presence at all (2026-09-08 slotted-config-and-db-delegation).
-        # Credential first, LLM_PROVIDER second: if push_env_vars fails
-        # partway through, every prefix of this dict that made it to
-        # Render is then either "no provider selected yet" (consistent) or
-        # "provider selected with its matching credential already there"
-        # (also consistent) -- never a provider switched on with no
-        # credential for it.
+        # Credential only -- no LLM_PROVIDER, no model_var push. Both provider
+        # selection and model are DB-only over there now (runtime_config/
+        # slot_config -- see pr-review-bot's docs/superpowers/specs/2026-09-09-
+        # provider-key-index-db-only-design.md, generalizing the 2026-09-08
+        # slotted-config-and-db-delegation work from model to provider too),
+        # so neither has a Render env var at all -- _seed_provider_config
+        # below seeds both directly into the visitor's own database instead.
         credential_var, _model_var = _LLM_ENV_VAR_NAMES[llm_provider["provider"]]
         env_vars[credential_var] = llm_provider["credential_value"]
-        env_vars["LLM_PROVIDER"] = llm_provider["provider"]
 
     dashboard_auth = session.frames.get("dashboard_auth")
     if dashboard_auth:
@@ -814,13 +881,15 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     # not visitor-submitted credentials -- see _GENERIC_OPERATIONAL_ENV_DEFAULTS.
     env_vars.update(_GENERIC_OPERATIONAL_ENV_DEFAULTS)
 
-    # Seed slot_config BEFORE the Render push (and refuse if it fails) --
-    # the visitor must never be able to reach a deployable state where
-    # Render has the credential but the newly-provisioned database has no
-    # matching model row (see docs/superpowers/specs/2026-09-08-slotted-
-    # config-and-db-delegation-design.md section 5). Model/project/location
-    # are DB-only now, with no automatic first-boot seed of their own (only
-    # the 9 tuning knobs get one, via that project's own
+    # Seed slot_config/runtime_config BEFORE the Render push (and refuse if
+    # it fails) -- the visitor must never be able to reach a deployable
+    # state where Render has the credential but the newly-provisioned
+    # database has no matching model/provider row (see
+    # docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-
+    # design.md section 5, generalized to provider selection itself by
+    # pr-review-bot's docs/superpowers/specs/2026-09-09-provider-key-index-
+    # db-only-design.md). Neither has an automatic first-boot seed of its
+    # own (only the 9 tuning knobs get one, via that project's own
     # _seed_runtime_config_defaults) -- this wizard is the only thing that
     # can seed them for a freshly-provisioned instance, since it runs
     # before the deployed service ever boots for the first time.
@@ -843,7 +912,7 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
         # credential's models were validated against during list-models is
         # always the same region seeded here.
         seeded = await asyncio.to_thread(
-            _seed_slot_config,
+            _seed_provider_config,
             supabase["database_url"],
             llm_provider["provider"],
             llm_provider["model"],

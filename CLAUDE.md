@@ -719,28 +719,45 @@ optional:**
   pattern this dict used to hold several of; it's pushed as `"*"`
   (2026-09-07) — see the dedicated bullet below for why. Keep this dict in
   sync with the sibling project's config by hand.
-- **`slot_config` (model, and for vertex, project/location) is seeded
-  directly into the newly-provisioned Supabase database, not pushed as a
-  Render env var** (2026-09-08, mirroring that project's own
-  slotted-config-and-db-delegation work — see
+- **`slot_config` (model, and for vertex, project/location) AND
+  `runtime_config` (`provider`, `{provider}_key_index`) are seeded directly
+  into the newly-provisioned Supabase database, neither ever pushed as a
+  Render env var** (slot_config: 2026-09-08, mirroring that project's own
+  slotted-config-and-db-delegation work; provider/key_index generalized to
+  the same DB-only treatment on 2026-09-09 — see
   `docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-design.md`
-  section 5, and `~/pr-review-bot`'s `providers/active_model.py`/
-  `providers/active_vertex_slot.py`, which have no env fallback at all: a
-  missing row is a real `ValueError` at request time, not a degraded
-  default). `router.py`'s `_seed_slot_config()` opens a raw, short-timeout
+  section 5 and `~/pr-review-bot`'s
+  `docs/superpowers/specs/2026-09-09-provider-key-index-db-only-design.md`,
+  and that project's `providers/active_model.py`/`providers/active_vertex_slot.py`/
+  `providers/active.py`, none of which have an env fallback at all: a
+  missing/NULL row is a real boot-time refusal, not a degraded default).
+  `router.py`'s `_seed_provider_config()` (renamed from `_seed_slot_config`
+  when the runtime_config write was added) opens a raw, short-timeout
   `psycopg` connection directly against the visitor's own
   `supabase["database_url"]` (already in-session by this point) — a
-  one-shot write, not a pool — and runs a `CREATE TABLE IF NOT EXISTS
-  slot_config (...)` (duplicated by hand from that project's `store.py`
-  `_SCHEMA`, same convention as `_LLM_ENV_VAR_NAMES`/
-  `_GENERIC_OPERATIONAL_ENV_DEFAULTS`) before the `INSERT ... ON CONFLICT
-  DO UPDATE`, since a freshly-provisioned database has no schema yet at
-  all — the deployed bot's own first boot is what normally creates it, and
-  this wizard runs before that first boot ever happens. Always writes
-  `slot_index = 0` — this wizard has no UI for choosing a numbered
-  credential slot, it only ever provisions the base credential, which
-  matches `providers/key_index.py::active_key_index`'s own default-to-0
-  behavior when no override is set. `vertex_gcp_project` is always written
+  one-shot write, not a pool — and runs both tables' `CREATE TABLE IF NOT
+  EXISTS` (duplicated by hand from that project's `store.py`'s `_SCHEMA`/
+  `RUNTIME_CONFIG_COLUMNS`, same convention as `_LLM_ENV_VAR_NAMES`/
+  `_GENERIC_OPERATIONAL_ENV_DEFAULTS` — `runtime_config`'s duplicate must be
+  the FULL column set, not just the columns this wizard writes, or that
+  project's own `CREATE TABLE IF NOT EXISTS` on first boot would find the
+  table already exists and never widen it) before the `INSERT ... ON
+  CONFLICT DO UPDATE`s, since a freshly-provisioned database has no schema
+  yet at all — the deployed bot's own first boot is what normally creates
+  it, and this wizard runs before that first boot ever happens. Both writes
+  share one connection/transaction, so a failure partway through never
+  leaves `slot_config` seeded with no matching `runtime_config.provider` or
+  vice versa. Always writes `slot_index = 0` and `{provider}_key_index = 0`
+  — this wizard has no UI for choosing a numbered credential slot, it only
+  ever provisions the base credential, which matches
+  `providers/key_index.py::active_key_index`'s own default-to-0 behavior
+  when no override is set (the DB write just makes that default explicit
+  rather than relying on an unset column reading the same way).
+  `{provider}_key_index`'s column name is looked up through a hardcoded
+  `_KEY_INDEX_COLUMNS` dict (duplicated from that project's
+  `providers/registry.py::KEY_INDEX_COLUMNS`) keyed by `provider`, never
+  built from it directly — that dict IS the injection guard for the
+  f-string that names the column. `vertex_gcp_project` is always written
   `NULL` (no project-collection UI exists in this wizard; that project's
   `factory.py` derives it from the service-account key's own embedded
   `project_id` when the DB value is empty) and `vertex_gcp_location` is
@@ -752,13 +769,14 @@ optional:**
   whole call (`{"valid": false, "reason": "slot_config_seed_failed"}`)
   without ever calling `render_client.push_env_vars`** — the visitor must
   never reach a state where Render has the LLM credential but the database
-  has no matching `slot_config` row for it, which the no-fallback
-  resolution above would turn into every review request failing at
-  runtime. The reverse case (seed succeeds, Render push then fails) is
-  unremarkable and already covered by the existing partial-failure
-  reporting below — a dangling, unused `slot_config` row for a service
-  that never got its credential is not a correctness problem the way the
-  other ordering would be.
+  has no matching `slot_config`/`runtime_config` row for it, which the
+  no-fallback resolution above would turn into every review request
+  failing at runtime, or the deployed service refusing to boot at all. The
+  reverse case (seed succeeds, Render push then fails) is unremarkable and
+  already covered by the existing partial-failure reporting below — a
+  dangling, unused `slot_config`/`runtime_config` row for a service that
+  never got its credential is not a correctness problem the way the other
+  ordering would be.
 - **The final `render-deploy` frame stays open (doesn't collapse) once
   done** (2026-09-02) — `completeFrame()` grew a 5th, optional `keepOpen`
   parameter (every other call site omits it, keeping the default
