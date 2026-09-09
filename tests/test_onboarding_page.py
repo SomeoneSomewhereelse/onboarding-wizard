@@ -763,9 +763,23 @@ async def test_model_select_has_a_disabled_placeholder_forcing_an_explicit_pick(
     assert 'placeholder.textContent = t("frame4_model_placeholder");' in fn_body
     # Placeholder must be appended before the real models are, not after.
     placeholder_append_pos = fn_body.index("select.appendChild(placeholder);")
-    models_forEach_pos = fn_body.index("models.forEach((m) => {")
+    models_forEach_pos = fn_body.index("sortedModels.forEach((m) => {")
     assert placeholder_append_pos < models_forEach_pos
     assert body.count("frame4_model_placeholder:") == 2  # STRINGS.en + STRINGS.he
+
+
+async def test_model_select_options_are_sorted_alphabetically():
+    """Same sort as pr-review-bot's own dashboard model dropdown
+    (dashboard/static/dashboard.html's modelOptionsHtml) -- a provider's
+    catalog order is not meaningful to a visitor picking a model by name."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("function showLlmProviderModels")
+    fn_body = body[fn_start : body.index("async function validateLlmProviderCredential")]
+    assert "const sortedModels = [...models].sort((a, b) => a.localeCompare(b));" in fn_body
+    sort_pos = fn_body.index("const sortedModels =")
+    forEach_pos = fn_body.index("sortedModels.forEach((m) => {")
+    assert sort_pos < forEach_pos
 
 
 async def test_vertex_llm_endpoint_leaves_the_page_exactly_once():

@@ -2214,6 +2214,10 @@
       llmProviderError("err_llm_no_models_available");
       return;
     }
+    // Alphabetical, same as pr-review-bot's own dashboard model dropdown
+    // (dashboard/static/dashboard.html's modelOptionsHtml) -- the provider's
+    // catalog order is not meaningful to a visitor picking a model by name.
+    const sortedModels = [...models].sort((a, b) => a.localeCompare(b));
     // Revealing the whole model-picker section grows the frame's content
     // height same as the GitHub App checklist does -- same fix applies.
     growFrameToFit("llm-provider", () => {
@@ -2223,7 +2227,7 @@
       placeholder.disabled = true;
       placeholder.selected = true;
       select.appendChild(placeholder);
-      models.forEach((m) => {
+      sortedModels.forEach((m) => {
         const opt = document.createElement("option");
         opt.value = m;
         opt.textContent = m;
