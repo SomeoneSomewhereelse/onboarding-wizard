@@ -57,6 +57,10 @@ works for this the same as Docker Engine — `testcontainers` just needs a
 reachable Docker daemon. With a real `DATABASE_URL` set (e.g. in `.env`),
 Docker isn't needed at all.
 
+Re-vendor pr-review-bot's provisioning contract and its pin (rewrites
+`contracts/provisioning.json` and `.ci/pr-review-bot-ref` together, or
+neither; never stages or commits): `uv run python -m scripts.update_bot_contract`
+
 ## Deployment
 
 Deployed on Render as a single Docker web service (`render.yaml`,
