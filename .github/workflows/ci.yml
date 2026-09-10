@@ -34,7 +34,16 @@ jobs:
       # 2026-09-09 for the bug this exists to catch).
       - name: Read pinned pr-review-bot ref
         id: pr_review_bot_ref
-        run: echo "sha=$(cat .ci/pr-review-bot-ref)" >> "$GITHUB_OUTPUT"
+        # The pin's format is fixed by pr-review-bot's docs/superpowers/specs/
+        # 2026-09-10-cross-repo-contract-direction-design.md section 5.5:
+        # exactly one 40-hex line, plus optional '#' comment lines so a
+        # deliberately-held pin can record why. A plain `cat` would hand a
+        # comment line to actions/checkout as a ref -- grep the sha line
+        # itself, and fail loudly if there isn't exactly one.
+        run: |
+          sha="$(grep -m1 -E '^[0-9a-f]{40}$' .ci/pr-review-bot-ref)"
+          test -n "$sha" || { echo "no 40-hex sha line in .ci/pr-review-bot-ref"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout pr-review-bot
         uses: actions/checkout@v7
