@@ -915,11 +915,14 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
     # docs/superpowers/specs/2026-09-08-slotted-config-and-db-delegation-
     # design.md section 5, generalized to provider selection itself by
     # pr-review-bot's docs/superpowers/specs/2026-09-09-provider-key-index-
-    # db-only-design.md). Neither has an automatic first-boot seed of its
-    # own (only the 9 tuning knobs get one, via that project's own
-    # _seed_runtime_config_defaults) -- this wizard is the only thing that
-    # can seed them for a freshly-provisioned instance, since it runs
-    # before the deployed service ever boots for the first time.
+    # db-only-design.md). This wizard is the only thing that can seed
+    # provider/key-index/model for a freshly-provisioned instance, since it
+    # runs before the deployed service ever boots for the first time --
+    # every other runtime_config column (the tuning knobs included) is
+    # backfilled by that project's own boot-time
+    # review_queue/store.py::_backfill_runtime_config instead, per its
+    # 2026-09-10 cross-repo-contract-direction work (see
+    # _RUNTIME_CONFIG_SCHEMA's own comment above).
     if llm_provider:
         if not supabase or "database_url" not in supabase:
             # Unreachable in normal sequential flow (the Supabase frame

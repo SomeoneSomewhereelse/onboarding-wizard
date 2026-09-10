@@ -92,7 +92,7 @@ def resolve_origin_main(bot_path: Path) -> str:
     again once the branch is deleted (spec section 5.5 step 2)."""
     result = subprocess.run(
         ["git", "-C", str(bot_path), "rev-parse", "origin/main"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", check=True,
     )
     sha = result.stdout.strip()
     if not _SHA_RE.match(sha):
@@ -106,7 +106,7 @@ def extract_contract(bot_path: Path, sha: str) -> str:
     tree is irrelevant (spec section 5.5 step 3)."""
     result = subprocess.run(
         ["git", "-C", str(bot_path), "show", f"{sha}:{CONTRACT_PATH}"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8",
     )
     if result.returncode != 0:
         raise ValueError(
@@ -115,15 +115,27 @@ def extract_contract(bot_path: Path, sha: str) -> str:
     return result.stdout
 
 
-def _run_parity_tests(root: Path) -> tuple[bool, str]:
+def _run_parity_tests(root: Path, bot_path: Path) -> tuple[bool, str]:
     """Run this repo's own wizard-side parity tests against whatever
-    contract/pin currently sit on disk under `root`. Never passed -n: the
-    pinned -n 4 in pyproject.toml's addopts is inherited unchanged, so a
-    bespoke worker count here cannot mask an xdist-only failure the real
-    suite would hit."""
+    contract/pin currently sit on disk under `root`.
+
+    Forces PR_REVIEW_BOT_PATH to the exact `bot_path` this run extracted
+    from, overriding any value already in the environment -- the parity
+    file's own bot-checkout resolution (PR_REVIEW_BOT_PATH, else a sibling
+    directory) is independent of --bot-path, so without this a run against
+    a non-default --bot-path could gate against a *different* checkout, or
+    -- if no sibling directory happens to exist either -- silently skip the
+    one test that verifies the extraction at all, which a green exit code
+    would then misreport as a real pass.
+
+    Never passed -n: the pinned -n 4 in pyproject.toml's addopts is
+    inherited unchanged, so a bespoke worker count here cannot mask an
+    xdist-only failure the real suite would hit.
+    """
+    env = {**os.environ, "PR_REVIEW_BOT_PATH": str(bot_path)}
     result = subprocess.run(
         [sys.executable, "-m", "pytest", PARITY_TESTS, "-q", "-p", "no:cacheprovider"],
-        cwd=root, capture_output=True, text=True,
+        cwd=root, env=env, capture_output=True, text=True, encoding="utf-8",
     )
     return result.returncode == 0, result.stdout + result.stderr
 
@@ -146,11 +158,21 @@ def main(argv: list[str] | None = None) -> int:
     # that is what makes the remember/write/restore sequence below safe: a
     # plain `git checkout` is always a sufficient recovery afterwards, never
     # a recovery that has to distinguish this script's own edit from a
-    # pre-existing one.
+    # pre-existing one. The returncode is checked, not just stdout: `git
+    # status` prints nothing to stdout AND exits non-zero (128) when it
+    # can't run at all -- not a git repo, git missing, or an unsafe/dubious
+    # ownership refusal -- and empty stdout must never be read as "clean"
+    # in that case, or this guard silently stops protecting anything.
     dirty = subprocess.run(
         ["git", "status", "--porcelain", "--", str(CONTRACT_PATH), str(REF_PATH)],
-        cwd=root, capture_output=True, text=True,
+        cwd=root, capture_output=True, text=True, encoding="utf-8",
     )
+    if dirty.returncode != 0:
+        print(
+            f"refusing to run: `git status` failed in {root} (exit {dirty.returncode}): "
+            f"{dirty.stderr.strip()} -- cannot verify {CONTRACT_PATH}/{REF_PATH} are clean"
+        )
+        return 1
     if dirty.stdout.strip():
         print(
             f"refusing to run: {CONTRACT_PATH} and/or {REF_PATH} already has uncommitted "
@@ -158,9 +180,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    old_contract = contract_file.read_text(encoding="utf-8") if contract_file.exists() else None
-    old_ref = ref_file.read_text(encoding="utf-8") if ref_file.exists() else None
-    old_sha = old_ref.strip() if old_ref else None
+    # existed_before/old_* let restore-on-failure put each file back to
+    # EXACTLY its prior state, including "didn't exist at all" -- writing
+    # placeholder content for a file that was previously absent would
+    # itself leave the pair inconsistent, the same failure mode the dirty
+    # check above exists to keep unreachable.
+    contract_existed_before = contract_file.exists()
+    ref_existed_before = ref_file.exists()
+    old_contract = contract_file.read_text(encoding="utf-8") if contract_existed_before else None
+    old_ref_text = ref_file.read_text(encoding="utf-8") if ref_existed_before else None
+    try:
+        old_sha = read_pinned_ref(root) if ref_existed_before else None
+    except ValueError:
+        old_sha = None
 
     subprocess.run(["git", "-C", str(bot_path), "fetch", "origin"], check=True)
     new_sha = resolve_origin_main(bot_path)
@@ -171,17 +203,22 @@ def main(argv: list[str] | None = None) -> int:
     contract_file.write_text(new_contract, encoding="utf-8", newline="\n")
     ref_file.write_text(new_sha + "\n", encoding="utf-8", newline="\n")
 
-    ok, output = _run_parity_tests(root)
+    ok, output = _run_parity_tests(root, bot_path)
     if not ok:
-        # Restore -- both files, together -- rather than leaving a partially
-        # advanced pair on disk. Nothing is staged either way (this script
-        # never runs `git add`/`git commit`), so restoring here is purely a
+        # Restore -- both files, together, to their EXACT prior state
+        # (including absence) -- rather than leaving a partially advanced
+        # pair on disk. Nothing is staged either way (this script never
+        # runs `git add`/`git commit`), so restoring here is purely a
         # working-tree write, safe because the dirty-check above already
         # guaranteed there was nothing uncommitted to clobber.
-        if old_contract is not None:
+        if contract_existed_before:
             contract_file.write_text(old_contract, encoding="utf-8", newline="\n")
-        if old_ref is not None:
-            ref_file.write_text(old_ref, encoding="utf-8", newline="\n")
+        else:
+            contract_file.unlink(missing_ok=True)
+        if ref_existed_before:
+            ref_file.write_text(old_ref_text, encoding="utf-8", newline="\n")
+        else:
+            ref_file.unlink(missing_ok=True)
         print("parity tests failed against the newly extracted contract -- wrote neither file:")
         print(output)
         return 1

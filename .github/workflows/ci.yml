@@ -44,8 +44,12 @@ jobs:
         # comment line to actions/checkout as a ref -- grep the sha line
         # itself, and fail loudly if there isn't exactly one.
         run: |
+          count="$(grep -c -E '^[0-9a-f]{40}$' .ci/pr-review-bot-ref || true)"
+          if [ "$count" != "1" ]; then
+            echo "expected exactly one 40-hex sha line in .ci/pr-review-bot-ref, found $count"
+            exit 1
+          fi
           sha="$(grep -m1 -E '^[0-9a-f]{40}$' .ci/pr-review-bot-ref)"
-          test -n "$sha" || { echo "no 40-hex sha line in .ci/pr-review-bot-ref"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout pr-review-bot

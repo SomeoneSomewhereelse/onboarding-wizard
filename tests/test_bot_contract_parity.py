@@ -49,8 +49,8 @@ def _contract() -> dict:
     return json.loads((_REPO_ROOT / CONTRACT_PATH).read_text(encoding="utf-8"))
 
 
-def _pinned_ref() -> str:
-    """The single 40-hex sha in .ci/pr-review-bot-ref.
+def _parse_pin_text(text: str) -> str:
+    """The parsing rule behind .ci/pr-review-bot-ref's format, given its text.
 
     Format is pinned by that design's section 5.5: exactly one 40-hex line,
     optional trailing newline, '#'-prefixed comment lines permitted so a
@@ -58,8 +58,12 @@ def _pinned_ref() -> str:
     hard error rather than a best-effort parse -- a malformed pin silently
     read as a ref name is how a "pinned" checkout quietly becomes a
     floating one.
+
+    Split out from _pinned_ref() (which reads the real file) so the format
+    rule itself can be exercised directly against synthetic text, rather
+    than a test re-implementing this logic alongside it and only proving
+    the reimplementation agrees with itself.
     """
-    text = (_REPO_ROOT / REF_PATH).read_text(encoding="utf-8")
     lines = [
         line.strip()
         for line in text.splitlines()
@@ -68,6 +72,11 @@ def _pinned_ref() -> str:
     assert len(lines) == 1, f"{REF_PATH} must hold exactly one sha line, found {len(lines)}"
     assert _SHA_RE.match(lines[0]), f"{REF_PATH} is not 40 lowercase hex characters: {lines[0]!r}"
     return lines[0]
+
+
+def _pinned_ref() -> str:
+    """The single 40-hex sha in .ci/pr-review-bot-ref."""
+    return _parse_pin_text((_REPO_ROOT / REF_PATH).read_text(encoding="utf-8"))
 
 
 def _require_bot_checkout() -> Path:
@@ -106,15 +115,11 @@ def test_the_pinned_ref_file_is_a_single_forty_hex_sha():
 
 def test_the_pinned_ref_file_tolerates_comment_lines():
     """A held pin must be able to record WHY it is held (section 5.5). This
-    pins the parser's own tolerance, so the format stays usable without
-    someone having to discover it by breaking CI."""
+    calls the real parser (_parse_pin_text), so the format stays usable
+    without someone having to discover it by breaking CI."""
     sha = "a" * 40
-    parsed = [
-        line.strip()
-        for line in f"# held: waiting on the bot's next release\n{sha}\n".splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-    assert parsed == [sha]
+    text = f"# held: waiting on the bot's next release\n{sha}\n"
+    assert _parse_pin_text(text) == sha
 
 
 def test_the_vendored_contract_carries_the_generators_do_not_edit_marker():
@@ -155,6 +160,7 @@ def test_vendored_contract_matches_the_bot_at_the_pinned_ref():
         ["git", "-C", str(bot_path), "show", f"{sha}:{CONTRACT_PATH}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert result.returncode == 0, (
@@ -168,12 +174,23 @@ def test_vendored_contract_matches_the_bot_at_the_pinned_ref():
     )
 
 
+def _references_env_vars(node: ast.AST) -> bool:
+    """Whether an assignment/delete target is (or contains) `env_vars[...]`.
+    Recurses into Tuple/List so a target like `(x, env_vars["Y"]) = ...`
+    can't hide a write inside a shape _render_push_set doesn't expect."""
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+        return node.value.id == "env_vars"
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return any(_references_env_vars(elt) for elt in node.elts)
+    return False
+
+
 def _render_push_set() -> set[str]:
     """Every env-var name bulk_push_render_env_vars can ever push.
 
     Recovered by AST from that function's own source rather than by driving
     the endpoint: the names are what the contract constrains, and the values
-    all come from visitor session state. Three shapes, all deliberate:
+    all come from visitor session state. Exactly two RECOGNIZED shapes:
 
       env_vars["LITERAL"] = ...   -> the name, directly
       env_vars[credential_var]    -> the active provider's credential; the
@@ -182,6 +199,16 @@ def _render_push_set() -> set[str]:
                                      there is exactly ONE such dynamic key,
                                      so a second one cannot slip in unnamed
       env_vars.update(NAME)       -> that module constant's keys
+
+    Every OTHER way the function could touch `env_vars` -- a second target
+    in a chained/tuple assignment, an augmented assignment (`env_vars |=
+    ...`), a `del env_vars[...]`, or any method call on it other than a
+    single-Name-argument `.update()` (a dict-literal `.update({...})`,
+    `.setdefault(...)`, `.pop(...)`, `.update(_helper())`) -- is treated as
+    UNRECOGNIZED and raises loudly, rather than being silently invisible to
+    this extractor. A name pushed only through one of those shapes would
+    otherwise pass the trespass/coverage tests below with nothing red
+    anywhere -- exactly the failure mode this static view exists to avoid.
 
     tests/test_onboarding_router.py::test_bulk_push_assembles_every_frame_into_one_push_call
     is the behavioural counterpart, pinning the real dict a fully-populated
@@ -197,6 +224,8 @@ def _render_push_set() -> set[str]:
     )
     names: set[str] = set()
     dynamic = 0
+    recognized: set[int] = set()
+
     for node in ast.walk(function):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             target = node.targets[0]
@@ -205,6 +234,7 @@ def _render_push_set() -> set[str]:
                 and isinstance(target.value, ast.Name)
                 and target.value.id == "env_vars"
             ):
+                recognized.add(id(node))
                 if isinstance(target.slice, ast.Constant):
                     names.add(target.slice.value)
                 else:
@@ -212,13 +242,38 @@ def _render_push_set() -> set[str]:
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "update"
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "env_vars"
-            and len(node.args) == 1
-            and isinstance(node.args[0], ast.Name)
         ):
-            names |= set(getattr(router, node.args[0].id))
+            if (
+                node.func.attr == "update"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Name)
+            ):
+                recognized.add(id(node))
+                names |= set(getattr(router, node.args[0].id))
+            else:
+                raise AssertionError(
+                    f"unrecognized env_vars.{node.func.attr}(...) call at "
+                    f"router.py:{node.lineno} -- _render_push_set only understands "
+                    "env_vars[literal] = ..., env_vars[dynamic] = ..., and "
+                    "env_vars.update(<a single module-constant name>)"
+                )
+
+    for node in ast.walk(function):
+        if id(node) in recognized:
+            continue
+        if isinstance(node, ast.Assign) and any(_references_env_vars(t) for t in node.targets):
+            raise AssertionError(
+                f"unrecognized assignment touching env_vars at router.py:{node.lineno}"
+            )
+        if isinstance(node, ast.AugAssign) and _references_env_vars(node.target):
+            raise AssertionError(
+                f"unrecognized augmented assignment touching env_vars at router.py:{node.lineno}"
+            )
+        if isinstance(node, ast.Delete) and any(_references_env_vars(t) for t in node.targets):
+            raise AssertionError(f"unrecognized `del` touching env_vars at router.py:{node.lineno}")
+
     assert dynamic == 1, (
         f"expected exactly one dynamically-keyed env_vars[...] write (the active "
         f"provider's credential), found {dynamic} -- a second one is a name this "
