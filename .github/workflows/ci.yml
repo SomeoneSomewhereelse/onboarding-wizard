@@ -26,12 +26,15 @@ jobs:
 
       # Pinned (not `main`) so this repo's CI never goes red for an
       # unrelated pr-review-bot change -- bump .ci/pr-review-bot-ref
-      # deliberately, like a dependency version bump, when the two need to
-      # move together. Powers tests/test_cross_repo_config_ordering.py,
-      # which cross-validates the runtime_config/slot_config schemas these
-      # two repos hand-duplicate and replays the real wizard-seed-then-
-      # bot-boot chronology against a live Postgres (see ISSUES.md
-      # 2026-09-09 for the bug this exists to catch).
+      # deliberately (uv run python -m scripts.update_bot_contract, never by
+      # hand) when the two need to move together. This pin now powers two
+      # things: tests/test_cross_repo_config_ordering.py's live-Postgres
+      # wizard-seed-then-bot-boot chronology test (ISSUES.md 2026-09-09 is
+      # the bug it exists to catch), and tests/test_bot_contract_parity.py's
+      # check that the vendored contracts/provisioning.json still matches
+      # the bot at this exact commit. Both FAIL rather than skip when this
+      # checkout is missing, so a broken step here shows up as a failure,
+      # not a quietly-skipped pass.
       - name: Read pinned pr-review-bot ref
         id: pr_review_bot_ref
         # The pin's format is fixed by pr-review-bot's docs/superpowers/specs/

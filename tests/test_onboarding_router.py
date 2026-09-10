@@ -4,11 +4,6 @@ serves the wizard page. See design doc section 5."""
 
 from __future__ import annotations
 
-import importlib.util
-import re
-from pathlib import Path
-
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 import github_client
@@ -1806,22 +1801,6 @@ async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
     assert body["reason"] == "slot_config_seed_failed"
 
 
-async def test_generic_operational_env_defaults_no_longer_includes_tuning_knobs():
-    """The 9 dispatcher/timeout tuning knobs (plus VERTEX_GCP_LOCATION) are
-    DB-only on the deployed service now (2026-09-08 slotted-config-and-db-
-    delegation) -- they get their real value from that project's own
-    first-boot seeding, not from a Render env var this wizard pushes."""
-    for key in (
-        "VERTEX_GCP_LOCATION", "LLM_REQUEST_TIMEOUT_SECONDS",
-        "DISPATCHER_IDLE_SLEEP_SECONDS", "DISPATCHER_DEFAULT_RETRY_AFTER_SECONDS",
-        "DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS", "DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS",
-        "DISPATCHER_MAX_FAILURE_ATTEMPTS", "DISPATCHER_MAX_NOTICE_POST_ATTEMPTS",
-        "DISPATCHER_MIN_RETRY_AFTER_SECONDS", "DISPATCHER_BACKOFF_JITTER_SECONDS",
-        "DISPATCHER_NOTICE_SWEEP_BATCH_SIZE",
-    ):
-        assert key not in router._GENERIC_OPERATIONAL_ENV_DEFAULTS
-
-
 async def test_bulk_push_with_no_session_fails_closed():
     client = await _client()
     resp = await client.post("/api/render/bulk-push-env-vars")
@@ -1949,42 +1928,3 @@ async def test_deploy_status_endpoint_with_cleared_pending_deploy_id_fails_close
         "/api/render/deploy-status", cookies={"onboarding_session": session_id}
     )
     assert resp.json() == {"valid": False, "reason": "no_session"}
-
-
-_PR_REVIEW_BOT = Path.home() / "pr-review-bot"
-
-
-@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
-def test_llm_env_var_names_match_pr_review_bot_registry():
-    """_LLM_ENV_VAR_NAMES is a hand-synced duplicate of that project's
-    providers/registry.py::PROVIDERS (see router.py's comment above the
-    dict) -- nothing automated ties the two together, so a rename over
-    there (as already happened once, see CLAUDE.md) can silently drift out
-    of sync here. registry.py has no imports beyond `__future__`, so it's
-    safe to load directly without the rest of that project's dependencies."""
-    spec = importlib.util.spec_from_file_location(
-        "_pr_review_bot_registry", _PR_REVIEW_BOT / "providers" / "registry.py"
-    )
-    registry = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(registry)
-    assert router._LLM_ENV_VAR_NAMES == registry.PROVIDERS
-
-
-@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
-def test_slot_config_schema_matches_pr_review_bot_store():
-    """_SLOT_CONFIG_SCHEMA is a hand-synced duplicate of that project's
-    review_queue/store.py::_SCHEMA's slot_config table (see router.py's
-    comment above the constant). A shape mismatch is the worst kind of
-    drift here: CREATE TABLE IF NOT EXISTS never corrects an
-    already-provisioned database, so a divergent schema seeded by this
-    wizard would stay permanently incompatible with what that project's own
-    store.py expects to read. Extracted as text (not imported) since
-    store.py pulls in that project's full config/db-pool dependency chain."""
-    store_source = (_PR_REVIEW_BOT / "review_queue" / "store.py").read_text(encoding="utf-8")
-    match = re.search(
-        r"CREATE TABLE IF NOT EXISTS slot_config \(.*?ENABLE ROW LEVEL SECURITY;",
-        store_source,
-        re.DOTALL,
-    )
-    assert match, "slot_config table definition not found in pr-review-bot's store.py"
-    assert match.group(0).split() == router._SLOT_CONFIG_SCHEMA.split()
