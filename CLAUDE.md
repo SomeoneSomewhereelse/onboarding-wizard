@@ -348,7 +348,8 @@ exactly this purpose:
 
 **A docstring that asserts a caller-set invariant ("the only caller always
 writes the full pair") is a validation gap waiting for its second caller.**
-This has now cost two incidents in `pr-review-bot`'s `store.py`, and
+This has now cost one incident and one live silent-failure path found
+before it caused harm, both in `pr-review-bot`'s `store.py`, and
 `router.py`'s provisioning writes are the same shape: a single caller today,
 prose standing in for a check. Validate in a predicate every writer calls,
 not in prose about who calls you.
@@ -822,9 +823,9 @@ not in prose about who calls you.
   but every column is either required or optional-and-written, so there is
   nothing to gain; that is deliberate, not an oversight.
   Both writes share one connection/transaction, so a failure partway
-  through never
-  leaves `slot_config` seeded with no matching `runtime_config.provider` or
-  vice versa. Always writes `slot_index = 0` and `{provider}_key_index = 0`
+  through never leaves `slot_config` seeded with no matching
+  `runtime_config.provider` or vice versa. Always writes `slot_index = 0`
+  and `{provider}_key_index = 0`
   — this wizard has no UI for choosing a numbered credential slot, it only
   ever provisions the base credential, which matches
   `providers/key_index.py::active_key_index`'s own default-to-0 behavior
@@ -968,9 +969,12 @@ not in prose about who calls you.
 - **Deploy status polling keeps its own copy of Render's deploy-status
   buckets in `render_client.py`, matching the sibling review-engine
   project's equivalent sets by hand — no import between the two repos.**
-  Keep the two in sync by hand if either changes; `router.py`'s
-  `_LLM_ENV_VAR_NAMES` mapping is the same pattern, paired with the
-  sibling project's own provider registry.
+  Keep the two in sync by hand if either changes. This one has no parity
+  assertion (the contract carries no deploy-status block) — unlike
+  `router.py`'s `_LLM_ENV_VAR_NAMES`, which is a hand-written duplicate too
+  but is checked against the vendored contract (see the cross-repo
+  contract section above); do not use this bullet as a template for a new
+  unasserted duplicate.
 - **Frame 5 (UptimeRobot)'s "blocked, no Render URL" state is no longer
   reachable in normal sequential flow** — the "Render service" frame now
   writes `onboarding.renderServiceUrl` two frames before UptimeRobot
