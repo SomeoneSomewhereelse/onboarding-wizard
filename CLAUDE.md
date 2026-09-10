@@ -294,6 +294,65 @@ optional:**
   comment): a real, non-idempotent external side effect already happened by
   that point, so failing the response would only invite a duplicate deploy.
 
+## The cross-repo contract with the review-engine project (2026-09-10)
+
+**`pr-review-bot` owns the schema contract; this wizard owns the row.** That
+project declares `runtime_config`/`slot_config`'s shape and every
+operational default, backfills any column it can derive from its own
+`Settings` defaults, and widens the table itself at boot (`ADD COLUMN IF NOT
+EXISTS`, then a `COALESCE` upsert that fills only NULLs and can never
+clobber a value this wizard wrote). This wizard writes only what it uniquely
+knows -- which provider the visitor chose, which key slot, which model --
+and that project refuses to start if *that* is missing. These two arrows
+point opposite ways on purpose.
+
+`ISSUES.md`'s 2026-09-09 incident is what it looks like when one side
+silently takes over the other's end: this wizard had to create the
+`runtime_config` row first (forced by the bot's own provider/slot_config
+boot gate), which made it the row's producer while the bot's seeding code
+still assumed it was -- 18 of 22 columns NULL forever, and every PR review
+on every wizard-provisioned deployment stuck behind a "Dispatcher
+configuration issue" comment that never resolved. The mechanism was
+row-creation *order*, not the migration of the tuning knobs into the
+database.
+
+The mechanical half is `contracts/provisioning.json`, a verbatim copy of a
+file `pr-review-bot` generates from its own constants and publishes for
+exactly this purpose:
+
+- **Never edit the vendored copy by hand**, and never bump
+  `.ci/pr-review-bot-ref` on its own.
+  `uv run python -m scripts.update_bot_contract` rewrites **both together or
+  neither** -- they are two halves of one fact (which bot contract we are
+  built against), and it refuses to write either if
+  `tests/test_bot_contract_parity.py` goes red against the extracted copy.
+  It resolves `origin/main`, never a local `HEAD` or a feature-branch tip.
+- **These are subset/superset checks, never equality checks.** This wizard's
+  DDL is deliberately narrower than the bot's declared shape, and the bot's
+  boot-time widen-and-backfill is what makes that narrowness harmless. The
+  tests assert coverage in both directions that matter -- we write
+  everything the bot's boot gate requires, and we push nothing the bot reads
+  only from the database -- not identity. An equality assertion across two
+  repos cannot be satisfied by either one alone, which is why the earlier
+  reciprocal-pin design was discarded.
+- **A new hand-maintained duplicate of a bot fact ships with its parity
+  assertion in the same commit.** `_LLM_ENV_VAR_NAMES`, `_KEY_INDEX_COLUMNS`
+  and `_GENERIC_OPERATIONAL_ENV_DEFAULTS` stay hand-written precisely
+  because the vendored contract is what catches a rename in them. A
+  duplicate with no assertion is the 2026-09-09 shape all over again.
+- **Being briefly behind is normal, not a breakage.** The bot's own CI never
+  blocks on this repo; a bot contract change lands there first and a
+  scheduled advisory job reports us as lagging until
+  `update_bot_contract.py` runs here. Catching up is one commit and is never
+  urgent enough to hand-edit either file.
+
+**A docstring that asserts a caller-set invariant ("the only caller always
+writes the full pair") is a validation gap waiting for its second caller.**
+This has now cost two incidents in `pr-review-bot`'s `store.py`, and
+`router.py`'s provisioning writes are the same shape: a single caller today,
+prose standing in for a check. Validate in a predicate every writer calls,
+not in prose about who calls you.
+
 ## Rules
 
 - **Never log a visitor-supplied credential**, in full or truncated — same
@@ -713,14 +772,21 @@ optional:**
   `VERTEX_GCP_LOCATION`; all of those are now DB-only over there (no Render
   env var at all) and are dropped from this dict entirely rather than
   pushed as `""` — the 9 dispatcher knobs get a real value from that
-  project's own first-boot seeding (`review_queue/store.py::
-  _seed_runtime_config_defaults`), and `VERTEX_GCP_LOCATION` (along with
+  project's own boot-time backfill (`review_queue/store.py::init_pool`
+  fills every NULL `runtime_config` column from its own declared `Settings`
+  defaults; the older `_seed_runtime_config_defaults` was removed on
+  2026-09-09 and is not what fills them any more — see the cross-repo
+  contract section above), and `VERTEX_GCP_LOCATION` (along with
   model and, for vertex, project) is seeded by this wizard directly into
   `slot_config` instead — see below. `GITHUB_TARGET_REPO` is the one
   survivor of the old "unconditional hardcoded operational default"
   pattern this dict used to hold several of; it's pushed as `"*"`
-  (2026-09-07) — see the dedicated bullet below for why. Keep this dict in
-  sync with the sibling project's config by hand.
+  (2026-09-07) — see the dedicated bullet below for why. This dict is
+  still hand-written, but no longer hand-*checked*:
+  `tests/test_bot_contract_parity.py` asserts its keys and placement
+  against `contracts/provisioning.json`, so a rename or a placement move
+  on the bot side fails a test here instead of silently pushing a name
+  nothing reads.
 - **`slot_config` (model, and for vertex, project/location) AND
   `runtime_config` (`provider`, `{provider}_key_index`) are seeded directly
   into the newly-provisioned Supabase database, neither ever pushed as a
@@ -738,16 +804,25 @@ optional:**
   `psycopg` connection directly against the visitor's own
   `supabase["database_url"]` (already in-session by this point) — a
   one-shot write, not a pool — and runs both tables' `CREATE TABLE IF NOT
-  EXISTS` (duplicated by hand from that project's `store.py`'s `_SCHEMA`/
-  `RUNTIME_CONFIG_COLUMNS`, same convention as `_LLM_ENV_VAR_NAMES`/
-  `_GENERIC_OPERATIONAL_ENV_DEFAULTS` — `runtime_config`'s duplicate must be
-  the FULL column set, not just the columns this wizard writes, or that
-  project's own `CREATE TABLE IF NOT EXISTS` on first boot would find the
-  table already exists and never widen it) before the `INSERT ... ON
-  CONFLICT DO UPDATE`s, since a freshly-provisioned database has no schema
-  yet at all — the deployed bot's own first boot is what normally creates
-  it, and this wizard runs before that first boot ever happens. Both writes
-  share one connection/transaction, so a failure partway through never
+  EXISTS` before the `INSERT ... ON CONFLICT DO UPDATE`s, since a
+  freshly-provisioned database has no schema yet at all — the deployed
+  bot's own first boot is what normally creates it, and this wizard runs
+  before that first boot ever happens. As of 2026-09-10 `runtime_config`'s
+  DDL here is deliberately NARROW — only the columns
+  `contracts/provisioning.json` lists as `provisioner_required` /
+  `provisioner_required_one_of`, i.e. the ones this wizard actually writes.
+  It used to have to be that project's FULL column set, because a
+  `CREATE TABLE IF NOT EXISTS` from a narrower creator would leave the bot's
+  own boot unable to widen the table; that project now widens it itself
+  (`ADD COLUMN IF NOT EXISTS` per declared column, then a `COALESCE`
+  backfill), so the requirement expired and the copied 22-column DDL and
+  15 copied default values went with it. See `router.py`'s own comment above
+  `_RUNTIME_CONFIG_SCHEMA` and the cross-repo contract section above.
+  `_SLOT_CONFIG_SCHEMA` is still the full six columns — it could shrink too,
+  but every column is either required or optional-and-written, so there is
+  nothing to gain; that is deliberate, not an oversight.
+  Both writes share one connection/transaction, so a failure partway
+  through never
   leaves `slot_config` seeded with no matching `runtime_config.provider` or
   vice versa. Always writes `slot_index = 0` and `{provider}_key_index = 0`
   — this wizard has no UI for choosing a numbered credential slot, it only
@@ -850,10 +925,13 @@ optional:**
   visually collapsed, with no cue a new step was ready.
 - **The DB-synced operational keys (cooldown/usage-cap/`REVIEW_DRAFT_PRS`)
   need no wizard-side push at all** (2026-09-02) — unlike the Render-env-var
-  knobs above, the review engine's own first-boot seeding handles this on
+  knobs above, the review engine's own boot-time backfill handles this on
   its side — no second service needs to open a connection to write into
-  that database's schema from the outside (`ON CONFLICT (id) DO NOTHING`,
-  so it never overwrites an operator's own value). This is what a freshly
+  that database's schema from the outside (`store.init_pool()`'s
+  `COALESCE` upsert only fills a currently-NULL column, so it never
+  overwrites an operator's own value; see the cross-repo contract section
+  above — the older `ON CONFLICT (id) DO NOTHING` first-boot seed this
+  bullet used to describe was removed 2026-09-09). This is what a freshly
   wizard-provisioned Supabase project gets on the sibling review-engine
   project's first boot. See `ISSUES.md`'s 2026-09-02 "push all optional env
   vars" entry for the reasoning and the ordering constraint that ruled out
