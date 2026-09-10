@@ -196,22 +196,27 @@ _KEY_INDEX_COLUMNS = {
 }
 
 # The sibling review-engine project's (~/pr-review-bot) config.py's
-# OPERATIONAL_KEYS tuning knobs that its deploy.py's --sync-env pushes as
-# Render env vars (its _GENERIC_OPERATIONAL_ENV_ATTRS), with their
-# config.py Settings field defaults hardcoded here -- same
-# duplication-not-import pattern as _LLM_ENV_VAR_NAMES above, kept in sync
-# by hand, nothing automated ties the two together.
+# OPERATIONAL_KEYS entries that its deploy.py's --sync-env pushes as Render
+# env vars on every sync (its _ALWAYS_SYNCED -- NOT _GENERIC_OPERATIONAL_ENV_ATTRS,
+# which is empty there as of its 2026-09-10 cross-repo-contract-direction
+# work), with their config.py Settings field defaults hardcoded here -- same
+# duplication-not-import pattern as _LLM_ENV_VAR_NAMES above. Kept in sync by
+# hand, but no longer entirely unchecked: tests/test_bot_contract_parity.py's
+# test_generic_operational_env_defaults_are_all_render_pushable asserts every
+# key here against that project's vendored contracts/provisioning.json, which
+# catches a rename or a placement move on the next `pytest` run rather than
+# leaving this wizard pushing a stale name forever with nothing red anywhere.
 #
 # As of that project's 2026-09-08 slotted-config-and-db-delegation work,
 # the 9 dispatcher/timeout tuning knobs (plus VERTEX_GCP_PROJECT/_LOCATION
 # and every provider's model var) are DB-only there -- no Render env var at
 # all. This wizard follows suit: those 11 keys are removed from here
 # entirely (nothing to push -- the 9 tuning knobs get their real value from
-# that project's own first-boot seeding, review_queue/store.py::
-# _seed_runtime_config_defaults, the moment the newly-deployed service
-# boots for the first time; model/project/location are seeded directly by
-# this wizard into slot_config below, since THAT has no automatic
-# first-boot seed of its own).
+# that project's own boot-time backfill, review_queue/store.py::
+# _backfill_runtime_config, the moment the newly-deployed service boots for
+# the first time; model/project/location are seeded directly by this wizard
+# into slot_config below, since THAT has no automatic first-boot seed of its
+# own).
 #
 # GITHUB_TARGET_REPO used to be excluded for the same reason blank-default
 # keys were (Render's API rejects an empty value outright, ISSUES.md
@@ -252,87 +257,45 @@ ALTER TABLE slot_config ENABLE ROW LEVEL SECURITY;
 """
 
 # Duplicated (not imported) from the sibling review-engine project's
-# (~/pr-review-bot) review_queue/store.py::RUNTIME_CONFIG_COLUMNS -- same
-# duplication-not-import convention as _SLOT_CONFIG_SCHEMA above, and for the
-# same reason: a freshly-provisioned Supabase database has no schema at all
-# yet (that project's own store.init_pool() is what normally creates it, on
-# the deployed service's first boot), and this wizard runs BEFORE that first
-# boot. This must be the FULL column set, not just (id, provider,
-# *_key_index): CREATE TABLE IF NOT EXISTS is a no-op against a table that
-# already exists, so if the wizard created a narrower table here first, that
-# project's own store.init_pool() would never widen it later -- its first
-# _seed_runtime_config_defaults() INSERT would then fail outright, naming a
-# column (e.g. cooldown_base_seconds) this table never had. Keep this in
-# sync by hand with RUNTIME_CONFIG_COLUMNS if it ever changes there.
+# (~/pr-review-bot) review_queue/store.py -- same duplication-not-import
+# convention as _SLOT_CONFIG_SCHEMA above, and for the same reason: a
+# freshly-provisioned Supabase database has no schema at all yet (that
+# project's own store.init_pool() is what normally creates it, on the
+# deployed service's first boot), and this wizard runs BEFORE that first
+# boot.
+#
+# DELIBERATELY NARROWER than that project's full 22-column
+# RUNTIME_CONFIG_COLUMNS: exactly contracts/provisioning.json's
+# runtime_config.provisioner_required (id, provider, updated_at) plus all
+# three provisioner_required_one_of columns. All three key-index columns are
+# declared even though only the chosen provider's is ever written -- the
+# column has to exist before the INSERT below can name it.
+#
+# This used to have to be the FULL column set, because CREATE TABLE IF NOT
+# EXISTS is a no-op against an existing table and that project's own
+# init_pool() would then never widen it. **That is no longer true**: as of
+# its 2026-09-10 bot-owned-defaults work, init_pool() widens both tables
+# itself with ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+# (review_queue/store.py::_widen_statements) and then backfills every NULL
+# column from its own declared Settings defaults (_backfill_runtime_config,
+# which uses COALESCE per column and so cannot clobber a value this wizard or
+# an operator wrote). A narrower table here is now self-healing, and this
+# wizard carrying a copy of that project's 15 operational defaults was
+# exactly the hand-duplication the contract exists to end. Do NOT re-add the
+# tuning columns.
+# tests/test_bot_contract_parity.py asserts this covers provisioner_required
+# and declares nothing the bot backfills.
 _RUNTIME_CONFIG_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runtime_config (
-    id                                       INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-    provider                                 TEXT,
-    updated_at                               TEXT NOT NULL,
-    cooldown_base_seconds                    DOUBLE PRECISION,
-    cooldown_max_seconds                     DOUBLE PRECISION,
-    cooldown_factor                          DOUBLE PRECISION,
-    gemini_key_index                         INTEGER,
-    groq_key_index                           INTEGER,
-    vertex_key_index                         INTEGER,
-    key_usage_token_cap                      INTEGER,
-    key_usage_reset_time_utc                 TEXT,
-    review_draft_prs                         BOOLEAN,
-    llm_request_timeout_seconds              DOUBLE PRECISION,
-    dispatcher_default_retry_after_seconds   DOUBLE PRECISION,
-    dispatcher_failure_base_backoff_seconds  DOUBLE PRECISION,
-    dispatcher_failure_max_backoff_seconds   DOUBLE PRECISION,
-    dispatcher_max_failure_attempts          INTEGER,
-    dispatcher_max_notice_post_attempts      INTEGER,
-    dispatcher_min_retry_after_seconds       DOUBLE PRECISION,
-    dispatcher_backoff_jitter_seconds        DOUBLE PRECISION,
-    dispatcher_notice_sweep_batch_size       INTEGER,
-    dispatcher_idle_sleep_seconds            DOUBLE PRECISION
+    id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    provider            TEXT,
+    updated_at          TEXT NOT NULL,
+    gemini_key_index    INTEGER,
+    groq_key_index      INTEGER,
+    vertex_key_index    INTEGER
 );
 ALTER TABLE runtime_config ENABLE ROW LEVEL SECURITY;
 """
-
-# Duplicated (not imported) from the sibling review-engine project's
-# (~/pr-review-bot) config.py Settings field defaults -- same
-# duplication-not-import convention as _LLM_ENV_VAR_NAMES/
-# _GENERIC_OPERATIONAL_ENV_DEFAULTS/the schema constants above, kept in sync
-# by hand.
-#
-# _seed_provider_config below writes these into runtime_config the ONE time
-# it creates that row -- not a standing runtime default-fallback. Until
-# 2026-09-09 this wizard wrote only provider/key_index/updated_at, leaving
-# these 16 columns NULL forever: pr-review-bot's own first-boot seed
-# (store.py::_seed_runtime_config_defaults, since removed) used
-# `ON CONFLICT (id) DO NOTHING`, which silently no-opped against the row
-# this wizard had already created, and every PR review on that deployment
-# got stuck forever behind a "Dispatcher configuration issue" comment that
-# never actually resolved (ISSUES.md 2026-09-09, both repos). The fix on
-# pr-review-bot's side was to stop seeding defaults at boot entirely and
-# fail loudly instead (main.py's lifespan now refuses to start without a
-# complete row) -- which makes writing a complete row here, once, at
-# provisioning time, load-bearing rather than a nice-to-have.
-#
-# key_usage_token_cap is deliberately NOT included/left NULL: None is
-# Settings' own default for it (no cap), and usage_cap_config.py treats a
-# None cap paired with a real reset time as "intentionally disabled", a
-# valid configured state, not "unset" -- there is nothing to seed.
-_RUNTIME_CONFIG_DEFAULTS: dict[str, float | int | bool | str] = {
-    "cooldown_base_seconds": 300.0,
-    "cooldown_max_seconds": 3600.0,
-    "cooldown_factor": 2.0,
-    "key_usage_reset_time_utc": "04:00:00",
-    "review_draft_prs": False,
-    "llm_request_timeout_seconds": 45.0,
-    "dispatcher_default_retry_after_seconds": 60.0,
-    "dispatcher_failure_base_backoff_seconds": 2.0,
-    "dispatcher_failure_max_backoff_seconds": 300.0,
-    "dispatcher_max_failure_attempts": 5,
-    "dispatcher_max_notice_post_attempts": 3,
-    "dispatcher_min_retry_after_seconds": 1.0,
-    "dispatcher_backoff_jitter_seconds": 0.0,
-    "dispatcher_notice_sweep_batch_size": 20,
-    "dispatcher_idle_sleep_seconds": 1.0,
-}
 
 _DB_CONNECT_TIMEOUT = 10
 
@@ -355,6 +318,20 @@ def _seed_provider_config(
     row either" for its own just-configured provider. Always slot 0: this
     wizard has no UI for choosing a numbered credential slot, it only ever
     provisions the base credential.
+
+    Writes ONLY what this wizard uniquely knows: provider, the chosen
+    provider's key-slot index, and updated_at. As of pr-review-bot's
+    2026-09-10 cross-repo-contract-direction work, every other
+    runtime_config column is the deployed service's own to fill at boot --
+    its store.init_pool() widens a narrower table with
+    ALTER TABLE ... ADD COLUMN IF NOT EXISTS and backfills every NULL from
+    its own declared Settings defaults, via COALESCE so it can never clobber
+    a value an operator has since set through the dashboard. This wizard no
+    longer carries a copy of those 15 operational defaults (see
+    contracts/provisioning.json's runtime_config.bot_backfilled, vendored
+    from that project) -- see ISSUES.md's 2026-09-09 entry for the incident
+    that a stale copy of this exact hand-duplication caused before the
+    contract existed.
 
     Both writes share one connection/transaction -- a failure partway
     through must never leave slot_config seeded with no matching
@@ -396,38 +373,24 @@ def _seed_provider_config(
                 (provider, model, vertex_gcp_project, vertex_gcp_location, now),
             )
             # key_index_column is looked up through _KEY_INDEX_COLUMNS above,
-            # and the tuning/cooldown/usage/review-draft column names come
-            # only from _RUNTIME_CONFIG_DEFAULTS's own literal keys -- never
-            # built from `provider` or any other caller-influenced value --
-            # so this dict (like _KEY_INDEX_COLUMNS) IS the injection guard
-            # for the f-strings below.
-            #
-            # provider/{key_index_column}/updated_at are unconditionally
-            # overwritten on every call (a redo of the LLM-provider frame
-            # really is a reconfiguration of those three). Every other
-            # column uses COALESCE(current, new) instead of a plain
-            # overwrite -- filled only the first time this row is created,
-            # never clobbering a value an operator has since set through the
-            # dashboard on a redo that happens after the service has already
-            # booted once (see _RUNTIME_CONFIG_DEFAULTS's docstring-comment
-            # above: this is a one-time seed, not a standing default
-            # fallback).
-            _defaults_columns = tuple(_RUNTIME_CONFIG_DEFAULTS)
+            # never built from `provider`, so that dict IS the injection
+            # guard for the f-strings here. All three columns are
+            # unconditionally overwritten on every call -- a redo of the
+            # LLM-provider frame really is a reconfiguration of exactly
+            # these three, and they are the only runtime_config values this
+            # wizard has any claim to. Every other column is the deployed
+            # service's own to fill at boot (see _RUNTIME_CONFIG_SCHEMA's
+            # comment): this wizard no longer writes, and no longer needs a
+            # COALESCE to avoid clobbering, any operational default.
             conn.execute(
                 "INSERT INTO runtime_config "
-                f"(id, provider, {key_index_column}, updated_at, "
-                f"{', '.join(_defaults_columns)}) "
-                "VALUES (1, %s, 0, %s, "
-                f"{', '.join(['%s'] * len(_defaults_columns))}) "
+                f"(id, provider, {key_index_column}, updated_at) "
+                "VALUES (1, %s, 0, %s) "
                 "ON CONFLICT (id) DO UPDATE SET "
                 "provider = EXCLUDED.provider, "
                 f"{key_index_column} = EXCLUDED.{key_index_column}, "
-                "updated_at = EXCLUDED.updated_at, "
-                + ", ".join(
-                    f"{col} = COALESCE(runtime_config.{col}, EXCLUDED.{col})"
-                    for col in _defaults_columns
-                ),
-                (provider, now, *(_RUNTIME_CONFIG_DEFAULTS[col] for col in _defaults_columns)),
+                "updated_at = EXCLUDED.updated_at",
+                (provider, now),
             )
         return True
     except Exception as exc:  # noqa: BLE001

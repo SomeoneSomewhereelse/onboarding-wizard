@@ -380,15 +380,6 @@ def test_the_wizards_slot_config_ddl_covers_required_plus_optional():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Task 4 of the Stage 3 plan shrinks router._RUNTIME_CONFIG_SCHEMA to only the "
-        "columns this wizard uniquely knows -- until then it still declares (and this "
-        "assertion still catches) the 15 columns the bot backfills at boot. strict=True "
-        "so this marker cannot silently outlive the shrink it is waiting on."
-    ),
-)
 def test_the_wizard_declares_no_column_the_bot_backfills():
     """The claim that makes section 7.1's deletion safe, asserted rather than
     assumed. A tuning column declared here is one this wizard would create
