@@ -1,44 +1,37 @@
-"""Cross-repo checks against the sibling ~/pr-review-bot checkout.
+"""The seed-then-boot chronology, against a real ~/pr-review-bot checkout.
 
-This wizard and pr-review-bot are developed together but never share code
-(everything touching `runtime_config`/`slot_config` is duplicated-not-imported
-by convention, kept in sync by hand -- see router.py's comments above
-`_RUNTIME_CONFIG_SCHEMA`/`_SLOT_CONFIG_SCHEMA`/`_RUNTIME_CONFIG_DEFAULTS`).
-That hand-sync has already drifted once in a way plain unit tests on either
-side couldn't catch: this wizard's provisioning write and pr-review-bot's own
-boot sequence disagreed about who was responsible for a fully-seeded
-`runtime_config` row, and every wizard-deployed instance got stuck forever
-behind a "Dispatcher configuration issue" PR comment as a result (ISSUES.md
-2026-09-09, both repos).
+This is the one test in this repo that needs both a live Postgres and the
+sibling pr-review-bot checkout: it reproduces the actual deploy chronology
+(this wizard's provisioning write, then the bot's own first-boot sequence)
+end to end, against a real ephemeral database. It is the direct regression
+test for ISSUES.md's 2026-09-09 cross-repo ordering incident: this wizard's
+`runtime_config` write and the bot's own boot sequence disagreed about who
+was responsible for filling the row, and every wizard-deployed instance got
+stuck forever behind a "Dispatcher configuration issue" PR comment as a
+result.
 
-Two tiers, both skipped (not failed) when no pr-review-bot checkout is
-available -- true for an ordinary local `pytest` run without the sibling repo
-present, never true in CI (see .github/workflows/ci.yml, which checks one out
-at a pinned ref specifically so these run):
+The static schema/name parity checks that used to live in this file moved to
+tests/test_bot_contract_parity.py, and changed shape along the way: instead
+of parsing pr-review-bot's own source (a DDL regex, an AST literal-eval),
+they read contracts/provisioning.json -- a copy of a file that project
+generates and publishes for exactly this purpose (see that project's
+docs/superpowers/specs/2026-09-10-cross-repo-contract-direction-design.md).
+That file's module docstring explains why these checks are assertions of
+COVERAGE rather than equality: this wizard's runtime_config/slot_config DDL
+is deliberately narrower than the bot's own declared shape, and the bot's
+own boot-time widen-and-backfill (exercised by the one test below) is what
+makes that narrowness harmless rather than a hazard.
 
-1. Structural DDL parity (`test_runtime_config_column_parity`,
-   `test_slot_config_column_parity`) -- pure static source parsing, no bot
-   code executed, no bot dependencies/env needed. Catches the schema hazard
-   router.py's own comment already warns about: a column added to the bot's
-   `RUNTIME_CONFIG_COLUMNS` without a matching addition here makes this
-   wizard's `CREATE TABLE IF NOT EXISTS` permanently narrower than the bot's,
-   which would break the bot's own first-boot schema check against a
-   wizard-provisioned database.
-
-2. The real regression test (`test_wizard_seed_leaves_bot_boot_ready`) --
-   reproduces the actual deploy chronology (this wizard's seed write, then
-   the bot's own store.init_pool()) against a real ephemeral Postgres, and
-   asserts the bot's dispatcher_tuning_config.problems() comes back empty
-   afterward. This is the test that would have caught the original ordering
-   bug directly, and the one worth trusting most if the other two ever have
-   to be simplified or dropped.
+Skipped (not failed) when no pr-review-bot checkout is available -- true for
+an ordinary local `pytest` run without the sibling repo present, never true
+in CI (see .github/workflows/ci.yml, which checks one out at a pinned ref
+specifically so this runs, and FAILS rather than skips there -- a CI skip
+would report a stale vendored contract or a broken checkout step as a pass).
 """
 from __future__ import annotations
 
-import ast
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -53,7 +46,12 @@ def _pr_review_bot_path() -> Path | None:
     PR_REVIEW_BOT_PATH lets CI (or a developer) point at a checkout in a
     non-default location; otherwise this falls back to the sibling-directory
     layout every local dev environment for this project actually has
-    (`~/onboarding-wizard` next to `~/pr-review-bot`)."""
+    (`~/onboarding-wizard` next to `~/pr-review-bot`). Gated on the bot's own
+    SOURCE being present, not just a `.git` directory -- this test needs to
+    `uv run --directory <bot>` the bot's actual code and dependencies, unlike
+    tests/test_bot_contract_parity.py's own bot-checkout check, which only
+    needs `git show` against the bot's object store. Deliberately not
+    unified with that one for this reason."""
     override = os.environ.get("PR_REVIEW_BOT_PATH")
     candidate = (
         Path(override) if override else Path(__file__).resolve().parents[2] / "pr-review-bot"
@@ -63,110 +61,80 @@ def _pr_review_bot_path() -> Path | None:
     return None
 
 
-def _skip_if_bot_checkout_missing() -> Path:
+def _require_bot_checkout() -> Path:
+    """The sibling pr-review-bot checkout -- FAILING, not skipping, in CI.
+
+    .github/workflows/ci.yml checks the bot out at the pinned ref
+    specifically so this test runs; its absence there means the workflow
+    broke, and a skip would report that as a pass (that design's section
+    6.3: "CI skips must not read as passes")."""
     path = _pr_review_bot_path()
-    if path is None:
-        pytest.skip(
-            "no pr-review-bot checkout available (set PR_REVIEW_BOT_PATH, or run "
-            "with ~/pr-review-bot present as a sibling directory) -- this check "
-            "only runs where a checkout exists, always true in CI."
+    if path is not None:
+        return path
+    message = (
+        "no pr-review-bot checkout available (set PR_REVIEW_BOT_PATH, or run "
+        "with ~/pr-review-bot present as a sibling directory)"
+    )
+    if os.environ.get("CI"):
+        pytest.fail(
+            f"{message} -- required in CI, where .github/workflows/ci.yml checks one out "
+            "at the pinned ref. A skip here would report a broken checkout step as a pass."
         )
-    return path
+    pytest.skip(f"{message} -- this check only runs where a checkout exists, always true in CI.")
 
 
-_CONSTRAINT_KEYWORDS = ("PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT")
+def test_wizard_seed_leaves_bot_boot_ready(db_url, db_exec, db_query):
+    """The bot's boot-time widen + backfill makes a MINIMALLY-provisioned
+    database boot-ready, against a real Postgres, in the real order.
 
+    This test used to prove something else. Until 2026-09-10 this wizard
+    wrote a complete 22-column runtime_config row, and this test proved the
+    22 hand-copied values were right. It now proves the opposite direction:
+    this wizard creates a deliberately NARROW table (six columns -- see
+    router.py's _RUNTIME_CONFIG_SCHEMA) and writes only provider, the chosen
+    key-slot index, and updated_at, and pr-review-bot's own
+    store.init_pool() must then widen the table (ALTER TABLE ... ADD COLUMN
+    IF NOT EXISTS, its _widen_statements) and fill every NULL from its own
+    declared Settings defaults (_backfill_runtime_config) before its
+    dispatcher tuning gate can pass. See that project's
+    docs/superpowers/specs/2026-09-10-cross-repo-contract-direction-design.md
+    sections 3 and 7.2.
 
-def _parse_ddl_columns(ddl_text: str, table: str) -> list[tuple[str, str]]:
-    """(name, normalized type+constraint string) pairs for a literal
-    `CREATE TABLE IF NOT EXISTS <table> (...)` block found in `ddl_text`.
-    Skips standalone table-level constraint lines (PRIMARY KEY (...), etc.)
-    -- those aren't columns. Whitespace inside each column's type/constraint
-    text is collapsed to single spaces so differing column-alignment padding
-    between the two hand-typed copies doesn't register as a difference."""
-    match = re.search(
-        rf"CREATE TABLE IF NOT EXISTS {re.escape(table)} \((.*?)\n\);",
-        ddl_text,
-        re.DOTALL,
-    )
-    assert match, f"no CREATE TABLE IF NOT EXISTS {table} (...) block found"
-    columns: list[tuple[str, str]] = []
-    for raw_line in match.group(1).split("\n"):
-        line = raw_line.strip().rstrip(",")
-        if not line:
-            continue
-        first_word = line.split(None, 1)[0].upper()
-        if first_word in _CONSTRAINT_KEYWORDS:
-            continue
-        name, _, rest = line.partition(" ")
-        columns.append((name, " ".join(rest.split())))
-    return columns
+    The chronology is the whole point and is not negotiable: this wizard
+    writes first (as it always must -- the bot's own provider/slot_config
+    boot check would otherwise fail), which is what made the wizard the
+    row's PRODUCER while the bot's old seeding code still assumed it was.
+    That inversion is ISSUES.md's 2026-09-09 incident: 18 of 22 columns NULL
+    forever, and every PR review on every wizard-provisioned deployment
+    stuck behind a "Dispatcher configuration issue" comment that never
+    resolved.
 
-
-def _bot_runtime_config_columns(bot_path: Path) -> list[tuple[str, str]]:
-    """Statically parses RUNTIME_CONFIG_COLUMNS out of the bot's store.py --
-    pure AST literal-eval of the assignment's value, no import, so this needs
-    none of the bot's own dependencies or environment. Deliberately not
-    parsed via the DDL-column regex above: unlike slot_config's DDL,
-    runtime_config's CREATE TABLE text in the bot's _SCHEMA is built at
-    runtime (an f-string join() over this exact tuple), not literal source
-    text, so there is nothing for a source-level DDL regex to find there."""
-    source = (bot_path / "review_queue" / "store.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        # RUNTIME_CONFIG_COLUMNS carries a `tuple[tuple[str, str], ...]`
-        # type annotation, so it's an AnnAssign node, not a plain Assign.
-        if (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "RUNTIME_CONFIG_COLUMNS"
-            and node.value is not None
-        ):
-            columns = ast.literal_eval(node.value)
-            return [(name, " ".join(sql_type.split())) for name, sql_type in columns]
-    raise AssertionError("RUNTIME_CONFIG_COLUMNS assignment not found in store.py")
-
-
-def test_runtime_config_column_parity():
-    bot_path = _skip_if_bot_checkout_missing()
-    wizard_columns = _parse_ddl_columns(router._RUNTIME_CONFIG_SCHEMA, "runtime_config")
-    bot_columns = _bot_runtime_config_columns(bot_path)
-    assert wizard_columns == bot_columns, (
-        "router.py's hand-copied _RUNTIME_CONFIG_SCHEMA has drifted from "
-        "pr-review-bot's review_queue/store.py::RUNTIME_CONFIG_COLUMNS -- "
-        "update router.py's copy (see its own comment for why this can't be "
-        "imported directly)."
-    )
-
-
-def test_slot_config_column_parity():
-    bot_path = _skip_if_bot_checkout_missing()
-    wizard_columns = _parse_ddl_columns(router._SLOT_CONFIG_SCHEMA, "slot_config")
-    bot_schema_source = (bot_path / "review_queue" / "store.py").read_text(encoding="utf-8")
-    bot_columns = _parse_ddl_columns(bot_schema_source, "slot_config")
-    assert wizard_columns == bot_columns, (
-        "router.py's hand-copied _SLOT_CONFIG_SCHEMA has drifted from "
-        "pr-review-bot's review_queue/store.py's slot_config table -- update "
-        "router.py's copy."
-    )
-
-
-def test_wizard_seed_leaves_bot_boot_ready(db_url, db_exec):
-    """Reproduces the real deploy chronology end to end against a real
-    Postgres: this wizard's provisioning write runs first (as it always must,
-    to satisfy the bot's own provider/slot_config boot check), then the bot's
-    own store.init_pool() runs exactly as it does on first boot. Asserts the
-    bot's dispatcher_tuning_config.problems() comes back empty afterward --
-    i.e. the bot is actually able to start. This is the direct regression
-    test for ISSUES.md's 2026-09-09 cross-repo ordering bug: before the fix
-    on both sides, this would have failed with 9 "<knob> is not set" problems
-    (the bot's old ON CONFLICT (id) DO NOTHING seed silently no-opped against
-    the row this wizard had already created)."""
-    bot_path = _skip_if_bot_checkout_missing()
+    Two assertions, and the second is what keeps the first honest:
+    problems() coming back empty proves the bot can start, and every
+    bot_backfilled column coming back NON-NULL proves the backfill is what
+    did it -- without that, a wizard that quietly went back to seeding those
+    columns itself would leave this test just as green.
+    """
+    bot_path = _require_bot_checkout()
     db_exec("DROP TABLE IF EXISTS runtime_config, slot_config, tickets, reviews CASCADE")
 
     ok = router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
     assert ok is True
+
+    # The narrow table really is narrow before the bot ever sees it -- so a
+    # non-NULL assertion below cannot be satisfied by this wizard.
+    declared = router._RUNTIME_CONFIG_SCHEMA
+    contract = json.loads(
+        (Path(__file__).resolve().parent.parent / "contracts" / "provisioning.json")
+        .read_text(encoding="utf-8")
+    )
+    backfilled = [e["column"] for e in contract["runtime_config"]["bot_backfilled"]]
+    assert backfilled, "the vendored contract lists no backfilled columns -- check would be vacuous"
+    for column in backfilled:
+        assert column not in declared, (
+            f"router._RUNTIME_CONFIG_SCHEMA declares {column}, which the bot backfills "
+            "-- this test can no longer distinguish a working backfill from a wizard seed"
+        )
 
     result = subprocess.run(
         [
@@ -189,4 +157,11 @@ def test_wizard_seed_leaves_bot_boot_ready(db_url, db_exec):
     assert problems == [], (
         "pr-review-bot's dispatcher tuning config is not boot-ready after this "
         f"wizard's seed: {problems}"
+    )
+
+    row = db_query(f"SELECT {', '.join(backfilled)} FROM runtime_config WHERE id = 1")[0]
+    still_null = [name for name, value in zip(backfilled, row) if value is None]
+    assert not still_null, (
+        f"the bot's backfill left these NULL: {still_null} -- a wizard-provisioned "
+        "deployment would boot into exactly ISSUES.md's 2026-09-09 state"
     )

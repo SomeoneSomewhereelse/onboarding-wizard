@@ -4,11 +4,6 @@ serves the wizard page. See design doc section 5."""
 
 from __future__ import annotations
 
-import importlib.util
-import re
-from pathlib import Path
-
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 import github_client
@@ -1704,62 +1699,34 @@ def test_seed_provider_config_writes_the_right_key_index_column_per_provider(
     assert row == [("vertex", None, None, 0)]
 
 
-def test_seed_provider_config_writes_the_dispatcher_tuning_defaults(db_url, db_exec, db_query):
-    """The 9 dispatcher/timeout tuning knobs (plus cooldown/review-draft) must
-    land as real values, not NULL, on the row this call creates -- pr-review-
-    bot's own boot no longer seeds any default for them (2026-09-09,
-    ISSUES.md both repos), so this wizard writing a complete row is what
-    keeps a freshly-provisioned instance from refusing to boot at all."""
-    db_exec("DELETE FROM runtime_config WHERE id = 1")
+def test_seed_provider_config_writes_only_what_this_wizard_uniquely_knows(
+    db_url, db_exec, db_query
+):
+    """The 2026-09-10 contract-direction change, from this side. This wizard
+    no longer copies pr-review-bot's 15 operational defaults: it writes
+    provider, the chosen provider's key-slot index, and updated_at, and the
+    bot fills the rest at boot from its OWN declared defaults (its
+    review_queue/store.py::_widen_statements + _backfill_runtime_config,
+    landed 2026-09-10). Those columns coming back NULL here is now CORRECT --
+    the bot's backfill is what makes them non-NULL, and tests/
+    test_cross_repo_config_ordering.py::test_wizard_seed_leaves_bot_boot_ready
+    is what proves the whole chronology end to end against a live Postgres.
+
+    Selecting from the columns the narrow table actually declares, not from
+    the bot's full 22: after tier-2 has run, this shared Postgres may hold a
+    table the bot already widened, so a SELECT of a tuning column would
+    succeed or raise UndefinedColumn depending on test order.
+    """
+    db_exec("DROP TABLE IF EXISTS runtime_config CASCADE")
     ok = router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
     assert ok is True
     row = db_query(
-        "SELECT llm_request_timeout_seconds, dispatcher_default_retry_after_seconds, "
-        "dispatcher_failure_base_backoff_seconds, dispatcher_failure_max_backoff_seconds, "
-        "dispatcher_max_failure_attempts, dispatcher_max_notice_post_attempts, "
-        "dispatcher_min_retry_after_seconds, dispatcher_backoff_jitter_seconds, "
-        "dispatcher_notice_sweep_batch_size, dispatcher_idle_sleep_seconds, "
-        "cooldown_base_seconds, cooldown_max_seconds, cooldown_factor, "
-        "key_usage_reset_time_utc, review_draft_prs, key_usage_token_cap "
+        "SELECT provider, groq_key_index, gemini_key_index, vertex_key_index "
         "FROM runtime_config WHERE id = 1"
     )
-    assert row == [
-        (
-            router._RUNTIME_CONFIG_DEFAULTS["llm_request_timeout_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_default_retry_after_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_failure_base_backoff_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_failure_max_backoff_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_max_failure_attempts"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_max_notice_post_attempts"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_min_retry_after_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_backoff_jitter_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_notice_sweep_batch_size"],
-            router._RUNTIME_CONFIG_DEFAULTS["dispatcher_idle_sleep_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["cooldown_base_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["cooldown_max_seconds"],
-            router._RUNTIME_CONFIG_DEFAULTS["cooldown_factor"],
-            router._RUNTIME_CONFIG_DEFAULTS["key_usage_reset_time_utc"],
-            router._RUNTIME_CONFIG_DEFAULTS["review_draft_prs"],
-            None,  # key_usage_token_cap: Settings' own default is "no cap"
-        )
-    ]
-
-
-def test_seed_provider_config_never_overwrites_an_operator_set_tuning_value(
-    db_url, db_exec, db_query
-):
-    """A redo of the LLM-provider frame after the service has already booted
-    once (and an operator has since customized dispatcher tuning through the
-    dashboard) must not silently reset that value back to this wizard's own
-    default -- runtime_config is DB-only, sole source of truth; this call's
-    COALESCE-based upsert may only fill a column that is still NULL."""
-    db_exec("DELETE FROM runtime_config WHERE id = 1")
-    router._seed_provider_config(db_url, "groq", "llama-3.3-70b-versatile", None, None)
-    db_exec("UPDATE runtime_config SET dispatcher_idle_sleep_seconds = 42.0 WHERE id = 1")
-    ok = router._seed_provider_config(db_url, "groq", "new-model", None, None)
-    assert ok is True
-    row = db_query("SELECT dispatcher_idle_sleep_seconds FROM runtime_config WHERE id = 1")
-    assert row == [(42.0,)]
+    assert row == [("groq", 0, None, None)]
+    assert "cooldown_base_seconds" not in router._RUNTIME_CONFIG_SCHEMA
+    assert not hasattr(router, "_RUNTIME_CONFIG_DEFAULTS")
 
 
 def test_seed_provider_config_returns_false_on_an_unreachable_database():
@@ -1832,22 +1799,6 @@ async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
     body = resp.json()
     assert body["valid"] is False
     assert body["reason"] == "slot_config_seed_failed"
-
-
-async def test_generic_operational_env_defaults_no_longer_includes_tuning_knobs():
-    """The 9 dispatcher/timeout tuning knobs (plus VERTEX_GCP_LOCATION) are
-    DB-only on the deployed service now (2026-09-08 slotted-config-and-db-
-    delegation) -- they get their real value from that project's own
-    first-boot seeding, not from a Render env var this wizard pushes."""
-    for key in (
-        "VERTEX_GCP_LOCATION", "LLM_REQUEST_TIMEOUT_SECONDS",
-        "DISPATCHER_IDLE_SLEEP_SECONDS", "DISPATCHER_DEFAULT_RETRY_AFTER_SECONDS",
-        "DISPATCHER_FAILURE_BASE_BACKOFF_SECONDS", "DISPATCHER_FAILURE_MAX_BACKOFF_SECONDS",
-        "DISPATCHER_MAX_FAILURE_ATTEMPTS", "DISPATCHER_MAX_NOTICE_POST_ATTEMPTS",
-        "DISPATCHER_MIN_RETRY_AFTER_SECONDS", "DISPATCHER_BACKOFF_JITTER_SECONDS",
-        "DISPATCHER_NOTICE_SWEEP_BATCH_SIZE",
-    ):
-        assert key not in router._GENERIC_OPERATIONAL_ENV_DEFAULTS
 
 
 async def test_bulk_push_with_no_session_fails_closed():
@@ -1977,42 +1928,3 @@ async def test_deploy_status_endpoint_with_cleared_pending_deploy_id_fails_close
         "/api/render/deploy-status", cookies={"onboarding_session": session_id}
     )
     assert resp.json() == {"valid": False, "reason": "no_session"}
-
-
-_PR_REVIEW_BOT = Path.home() / "pr-review-bot"
-
-
-@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
-def test_llm_env_var_names_match_pr_review_bot_registry():
-    """_LLM_ENV_VAR_NAMES is a hand-synced duplicate of that project's
-    providers/registry.py::PROVIDERS (see router.py's comment above the
-    dict) -- nothing automated ties the two together, so a rename over
-    there (as already happened once, see CLAUDE.md) can silently drift out
-    of sync here. registry.py has no imports beyond `__future__`, so it's
-    safe to load directly without the rest of that project's dependencies."""
-    spec = importlib.util.spec_from_file_location(
-        "_pr_review_bot_registry", _PR_REVIEW_BOT / "providers" / "registry.py"
-    )
-    registry = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(registry)
-    assert router._LLM_ENV_VAR_NAMES == registry.PROVIDERS
-
-
-@pytest.mark.skipif(not _PR_REVIEW_BOT.exists(), reason="~/pr-review-bot not checked out here")
-def test_slot_config_schema_matches_pr_review_bot_store():
-    """_SLOT_CONFIG_SCHEMA is a hand-synced duplicate of that project's
-    review_queue/store.py::_SCHEMA's slot_config table (see router.py's
-    comment above the constant). A shape mismatch is the worst kind of
-    drift here: CREATE TABLE IF NOT EXISTS never corrects an
-    already-provisioned database, so a divergent schema seeded by this
-    wizard would stay permanently incompatible with what that project's own
-    store.py expects to read. Extracted as text (not imported) since
-    store.py pulls in that project's full config/db-pool dependency chain."""
-    store_source = (_PR_REVIEW_BOT / "review_queue" / "store.py").read_text(encoding="utf-8")
-    match = re.search(
-        r"CREATE TABLE IF NOT EXISTS slot_config \(.*?ENABLE ROW LEVEL SECURITY;",
-        store_source,
-        re.DOTALL,
-    )
-    assert match, "slot_config table definition not found in pr-review-bot's store.py"
-    assert match.group(0).split() == router._SLOT_CONFIG_SCHEMA.split()

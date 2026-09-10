@@ -17,3 +17,10 @@ gcp-service-account-key*.json
 .git/
 .venv/
 docs/superpowers/
+
+# Dev-only cross-repo tooling: the vendored pr-review-bot contract is a test
+# fixture (tests/test_bot_contract_parity.py) and update_bot_contract.py is a
+# developer command. The running service never reads either -- same reasoning
+# as **/tests/ above.
+contracts/
+scripts/
