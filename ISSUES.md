@@ -269,6 +269,12 @@ accidentally exercise the refusal path instead of the real one._
 - **Why parked:** Low severity, hygiene-only, no functional impact; not part of the ordering-bug fix this batch addressed.
 - **Follow-up:** If ever addressed, have the LLM-provider frame's redo path explicitly clear the previous provider's Render env var(s) and `slot_config`/`*_key_index` row when switching providers.
 
+### CI's `pytest` run prints 50 `DeprecationWarning`s for per-request `cookies=` on the shared `httpx` test client
+- **Found during:** Reviewing CI run `34610283343` (2026-09-11, the `fix-ci-job` session's push after fixing the `resolve_origin_main` git-identity test failure) — the run itself was green; these are its only warnings, not a failure.
+- **What:** Every `tests/test_onboarding_router.py` request that authenticates via the session cookie passes `cookies={"onboarding_session": session_id}` as a per-call kwarg on the shared `httpx.AsyncClient` fixture (e.g. `tests/test_onboarding_router.py:145,161,185,273,...` — dozens of call sites) rather than setting it once on the client instance (`client.cookies.set(...)`). `httpx` has deprecated per-request `cookies=` (`.venv/.../httpx/_client.py:1859` and `:1768`) because cookie-persistence semantics for a per-call value are ambiguous against a client that also has its own cookie jar; pytest collapses the 50 occurrences down to 2 warning lines by call site.
+- **Why parked:** Cosmetic — a future `httpx` major version could turn this into a hard error, but nothing is broken today, and fixing dozens of call sites across the file isn't warranted by a routine CI-log check alone.
+- **Follow-up:** When `test_onboarding_router.py` is next substantially touched, switch its session-cookie fixture(s) to set `onboarding_session` once via `client.cookies.set(...)` (or a fixture-level default) instead of passing `cookies=` per call, and drop the per-call kwarg from every call site.
+
 ---
 
 ## Design Gaps
