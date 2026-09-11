@@ -97,6 +97,12 @@ class _FakeModelsResource:
             raise self._exc
         return _FakeModelPager(self._models)
 
+    async def count_tokens(self, **kwargs):
+        self.count_tokens_kwargs = kwargs
+        if self._exc:
+            raise self._exc
+        return SimpleNamespace(total_tokens=1)
+
 
 class _FakeAio:
     def __init__(self, models=None, exc=None):
@@ -553,3 +559,143 @@ async def test_list_groq_models_does_not_retry_behind_our_back():
         result = await llm_client.list_groq_models("a")
     assert result == llm_client.LlmApiFailed(reason="rate_limited")
     assert route.call_count == 1
+
+
+async def test_probe_vertex_model_returns_ok_for_a_callable_model(monkeypatch):
+    _install_fake_client(monkeypatch)
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash"
+    )
+    assert result == llm_client.LlmModelProbed(model="gemini-2.5-flash")
+
+
+async def test_probe_vertex_model_404_is_model_not_callable(monkeypatch):
+    """The production failure exactly: the model IS in the listing and a
+    real call still 404s, because Vertex's listing is not entitlement-
+    scoped."""
+    _install_fake_client(
+        monkeypatch,
+        exc=genai_errors.ClientError(404, {"message": "Publisher model not found"}),
+    )
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-3.1-flash-lite"
+    )
+    assert result == llm_client.LlmApiFailed(reason="model_not_callable")
+
+
+async def test_probe_vertex_model_rate_limited_is_probe_unavailable(monkeypatch):
+    """No verdict was reached. Reporting that as an unusable model would
+    send a visitor hunting for a replacement that was never the problem."""
+    _install_fake_client(
+        monkeypatch, exc=genai_errors.ClientError(429, {"message": "slow down"})
+    )
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash"
+    )
+    assert result == llm_client.LlmApiFailed(reason="model_probe_unavailable")
+
+
+async def test_probe_vertex_model_server_error_is_probe_unavailable(monkeypatch):
+    _install_fake_client(
+        monkeypatch, exc=genai_errors.ServerError(500, {"message": "oops"})
+    )
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash"
+    )
+    assert result == llm_client.LlmApiFailed(reason="model_probe_unavailable")
+
+
+async def test_probe_vertex_model_forbidden_stays_a_credential_verdict(monkeypatch):
+    _install_fake_client(
+        monkeypatch, exc=genai_errors.ClientError(403, {"message": "no role"})
+    )
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash"
+    )
+    assert result == llm_client.LlmApiFailed(reason="forbidden")
+
+
+async def test_probe_vertex_model_refresh_error_is_unauthorized(monkeypatch):
+    """A dead credential is a credential problem, not a model problem."""
+    _install_fake_client(monkeypatch)
+
+    def _raise(self, request):
+        raise google_auth_exceptions.RefreshError("bad credentials")
+
+    monkeypatch.setattr(llm_client.service_account.Credentials, "refresh", _raise)
+    result = await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash"
+    )
+    assert result == llm_client.LlmApiFailed(reason="unauthorized")
+
+
+async def test_probe_vertex_model_rejects_an_unpinned_token_uri(monkeypatch):
+    """The same SSRF guard list_vertex_models carries -- the visitor
+    supplies this key, so token_uri must never be honoured."""
+    _install_fake_client(monkeypatch)
+    hostile = dict(_SENTINEL_SERVICE_ACCOUNT, token_uri="http://169.254.169.254/")
+    result = await llm_client.probe_vertex_model(_b64(hostile), "gemini-2.5-flash")
+    assert result == llm_client.LlmApiFailed(reason="invalid_service_account_json")
+
+
+async def test_probe_vertex_model_closes_the_client_on_failure(monkeypatch):
+    _install_fake_client(
+        monkeypatch, exc=genai_errors.ClientError(404, {"message": "nope"})
+    )
+    await llm_client.probe_vertex_model(_b64(_SENTINEL_SERVICE_ACCOUNT), "m")
+    assert _FakeClient.last_instance.aio.closed is True
+
+
+async def test_probe_vertex_model_uses_the_given_project_and_location(monkeypatch):
+    _install_fake_client(monkeypatch)
+    await llm_client.probe_vertex_model(
+        _b64(_SENTINEL_SERVICE_ACCOUNT),
+        "gemini-2.5-flash",
+        project="other-project",
+        location="europe-west4",
+    )
+    assert _FakeClient.last_kwargs["project"] == "other-project"
+    assert _FakeClient.last_kwargs["location"] == "europe-west4"
+
+
+async def test_probe_vertex_model_defaults_project_to_the_keys_own(monkeypatch):
+    _install_fake_client(monkeypatch)
+    await llm_client.probe_vertex_model(_b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash")
+    assert _FakeClient.last_kwargs["project"] == "sentinel-project"
+    assert _FakeClient.last_kwargs["location"] == "us-central1"
+
+
+async def test_probe_vertex_model_sends_the_selected_model(monkeypatch):
+    _install_fake_client(monkeypatch)
+    await llm_client.probe_vertex_model(_b64(_SENTINEL_SERVICE_ACCOUNT), "gemini-2.5-flash")
+    assert _FakeClient.last_instance.aio.models.count_tokens_kwargs["model"] == "gemini-2.5-flash"
+
+
+async def test_probe_gemini_model_404_is_model_not_callable(monkeypatch):
+    _install_fake_client(
+        monkeypatch, exc=genai_errors.ClientError(404, {"message": "nope"})
+    )
+    result = await llm_client.probe_gemini_model("sentinel-api-key", "no-such-model")
+    assert result == llm_client.LlmApiFailed(reason="model_not_callable")
+
+
+async def test_probe_gemini_model_returns_ok(monkeypatch):
+    _install_fake_client(monkeypatch)
+    result = await llm_client.probe_gemini_model("sentinel-api-key", "gemini-flash-latest")
+    assert result == llm_client.LlmModelProbed(model="gemini-flash-latest")
+
+
+async def test_probe_gemini_model_unauthorized_key_is_not_a_model_verdict(monkeypatch):
+    _install_fake_client(monkeypatch, exc=genai_errors.ClientError(401, {"message": "bad key"}))
+    result = await llm_client.probe_gemini_model("bad-key", "gemini-flash-latest")
+    assert result == llm_client.LlmApiFailed(reason="unauthorized")
+
+
+async def test_probe_gemini_model_closes_the_client_on_success(monkeypatch):
+    _install_fake_client(monkeypatch)
+    await llm_client.probe_gemini_model("a", "gemini-flash-latest")
+    assert _FakeClient.last_instance.aio.closed is True
+
+
+async def test_model_probe_error_codes_are_exactly_the_two_documented():
+    assert llm_client.MODEL_PROBE_ERROR_CODES == ("model_not_callable", "model_probe_unavailable")

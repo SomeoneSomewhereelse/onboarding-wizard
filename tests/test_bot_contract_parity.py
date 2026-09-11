@@ -128,19 +128,25 @@ def test_the_vendored_contract_carries_the_generators_do_not_edit_marker():
     assert "scripts.gen_contract" in contract["generated_by"]
 
 
-def test_the_vendored_contract_version_is_one_this_repo_understands():
+def test_the_vendored_contract_version_is_two_this_repo_understands():
     """A shape change over there bumps contract_version (a new block, a
     renamed key, a changed entry shape) -- never an ordinary content edit.
     Reading a version this repo's assertions were not written against would
     make every subset check below vacuously true rather than wrong, which
-    is the failure mode worth a loud stop."""
-    assert _contract()["contract_version"] == 1
+    is the failure mode worth a loud stop.
+
+    Version 2 added `model_validation` -- the bot's declaration that Vertex
+    and Gemini models must be proven callable by a live probe before being
+    written, because Vertex's own catalog listing is not scoped by project
+    entitlement. See tests/test_model_validation_conformance.py for this
+    repo's implementation of that rule."""
+    assert _contract()["contract_version"] == 2
 
 
 def test_the_vendored_contract_has_every_block_this_repo_reads():
     assert set(_contract()) == {
         "generated_by", "contract_version",
-        "env_vars", "providers", "runtime_config", "slot_config",
+        "env_vars", "providers", "model_validation", "runtime_config", "slot_config",
     }
 
 

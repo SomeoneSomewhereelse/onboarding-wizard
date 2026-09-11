@@ -931,6 +931,32 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
             # "no_session"-shaped refusals guard, rather than silently
             # pushing a credential with no matching slot_config row.
             return {"valid": False, "reason": "supabase_not_ready", "pushed": []}
+        # Prove the model is actually callable before seeding it or pushing
+        # its credential to Render -- list-models (at /api/llm/*/list-models
+        # time) only proves the credential authenticates and the model is
+        # LISTED, which for Vertex is the global Model Garden, not a
+        # per-project entitlement list (pr-review-bot's docs/superpowers/
+        # specs/2026-09-11-vertex-model-entitlement-validation-design.md
+        # section 1 -- the incident this whole mechanism exists to prevent).
+        # Runs before _seed_provider_config AND before the Render push
+        # below, same ordering reason as pr-review-bot's own
+        # _apply_llm_credential: a refused model must never leave a pushed
+        # credential (or a seeded row) with nothing to match it. Groq needs
+        # no probe (contracts/provisioning.json's model_validation block --
+        # no free token-counting endpoint, and its own listing is
+        # key-scoped, unlike Vertex's).
+        provider = llm_provider["provider"]
+        probe: llm_client.LlmModelProbed | llm_client.LlmApiFailed | None = None
+        if provider == "vertex":
+            probe = await llm_client.probe_vertex_model(
+                llm_provider["credential_value"], llm_provider["model"]
+            )
+        elif provider == "gemini":
+            probe = await llm_client.probe_gemini_model(
+                llm_provider["credential_value"], llm_provider["model"]
+            )
+        if isinstance(probe, llm_client.LlmApiFailed):
+            return {"valid": False, "reason": probe.reason, "pushed": []}
         # No project/location collection UI exists in this wizard (never
         # did) -- vertex_gcp_project stays None so pr-review-bot's own
         # factory.py derives it from the service-account key's embedded

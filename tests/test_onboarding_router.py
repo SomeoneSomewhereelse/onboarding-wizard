@@ -1584,8 +1584,12 @@ async def test_bulk_push_assembles_every_frame_into_one_push_call(monkeypatch):
         seeded["args"] = (database_url, provider, model, project, location)
         return True
 
+    async def fake_probe_gemini_model(api_key, model):
+        return llm_client.LlmModelProbed(model=model)
+
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
+    monkeypatch.setattr(llm_client, "probe_gemini_model", fake_probe_gemini_model)
     client = await _client()
     resp = await client.post(
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
@@ -1759,8 +1763,12 @@ async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
+    async def fake_probe_vertex_model(service_account_key_b64, model):
+        return llm_client.LlmModelProbed(model=model)
+
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe_vertex_model)
     client = await _client()
     resp = await client.post(
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
@@ -1769,6 +1777,74 @@ async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
     assert seeded["args"] == (
         "postgresql://x", "vertex", "gemini-2.5-flash", None, "us-central1",
     )
+
+
+async def test_bulk_push_refuses_before_seeding_when_the_model_probe_fails(monkeypatch):
+    """list-models only proves the credential authenticates and the model is
+    LISTED -- for Vertex that's the global Model Garden, not per-project
+    entitlement. A failed probe must refuse before _seed_provider_config and
+    before the Render push, exactly like a DB-seed failure does: the visitor
+    must never reach a state where a credential is pushed (or a row seeded)
+    for a model that 404s every real call."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-3.1-flash-lite"},
+    )
+
+    def boom_seed(*a, **k):
+        raise AssertionError("_seed_provider_config must not run when the probe fails")
+
+    def boom_push(*a, **k):
+        raise AssertionError("push_env_vars must not run when the probe fails")
+
+    async def fake_probe_vertex_model(service_account_key_b64, model):
+        return llm_client.LlmApiFailed(reason="model_not_callable")
+
+    monkeypatch.setattr(router, "_seed_provider_config", boom_seed)
+    monkeypatch.setattr(render_client, "push_env_vars", boom_push)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe_vertex_model)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": False, "reason": "model_not_callable", "pushed": []}
+
+
+async def test_bulk_push_never_probes_groq(monkeypatch):
+    """Groq needs no live entitlement probe (contracts/provisioning.json's
+    model_validation block: no free token-counting endpoint, and its own
+    listing is key-scoped, unlike Vertex's)."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "groq", "credential_value": "gsk-x", "model": "llama-3.3-70b-versatile"},
+    )
+
+    def fake_seed_provider_config(database_url, provider, model, project, location):
+        return True
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    def boom_probe(*a, **k):
+        raise AssertionError("groq must never be probed")
+
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    monkeypatch.setattr(llm_client, "probe_gemini_model", boom_probe)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", boom_probe)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json()["valid"] is True
 
 
 async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
@@ -1790,8 +1866,12 @@ async def test_bulk_push_refuses_when_slot_config_seed_fails(monkeypatch):
     def boom(*a, **k):
         raise AssertionError("push_env_vars must not be called when the DB seed failed")
 
+    async def fake_probe_gemini_model(api_key, model):
+        return llm_client.LlmModelProbed(model=model)
+
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(render_client, "push_env_vars", boom)
+    monkeypatch.setattr(llm_client, "probe_gemini_model", fake_probe_gemini_model)
     client = await _client()
     resp = await client.post(
         "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
@@ -1875,9 +1955,13 @@ async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypa
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
+    async def fake_probe_vertex_model(service_account_key_b64, model):
+        return llm_client.LlmModelProbed(model=model)
+
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
     monkeypatch.setattr(llm_client, "_VERTEX_LOCATION", "some-other-region")
     monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe_vertex_model)
     client = await _client()
     await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
     assert seeded["location"] == "some-other-region"

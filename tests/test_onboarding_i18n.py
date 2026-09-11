@@ -4,9 +4,26 @@ the sibling review-engine project's own dashboard.html implementation
 project's dashboard page tests use."""
 from __future__ import annotations
 
+import re
+
 from httpx import ASGITransport, AsyncClient
 
 from main import app
+
+_STRING_KEY_RE = re.compile(r"^\s*(\w+):", re.MULTILINE)
+
+
+def _locale_keys(body: str, start_marker: str, end_marker: str) -> set[str]:
+    """Every top-level `key:` in one `const STRINGS` locale block, found by
+    slicing the raw served HTML between two literal markers already unique
+    in the file (`en: {` / `he: {` / the STRINGS object's own closing
+    `};`), then regex-matching indented `identifier:` lines -- the same
+    text-level extraction style test_config_field_registry.py-equivalents
+    in the sibling review-engine project use for their own JS blocks,
+    rather than a full JS parse."""
+    start = body.index(start_marker) + len(start_marker)
+    end = body.index(end_marker, start)
+    return set(_STRING_KEY_RE.findall(body[start:end]))
 
 STRINGS_KEYS = [
     "page_title", "heading", "lede", "theme_light", "theme_dark", "theme_system",
@@ -40,6 +57,20 @@ async def test_every_string_key_is_defined_for_both_languages():
     body = (await client.get("/")).text
     for key in STRINGS_KEYS:
         assert body.count(f"{key}:") == 2, f"{key} should appear once per language block"
+
+
+async def test_the_two_locale_dictionaries_carry_identical_key_sets():
+    """A key added to only one of const STRINGS' two locale blocks (en/he)
+    is a real, easy-to-make mistake -- STRINGS_KEYS above is a fixed,
+    hand-maintained subset, so it can't catch a NEW key that was only added
+    to one side. This diffs the two blocks' full key sets directly."""
+    client = await _client()
+    body = (await client.get("/")).text
+    en_keys = _locale_keys(body, "en: {", "\n    he: {")
+    he_keys = _locale_keys(body, "he: {", "\n  };")
+    assert en_keys == he_keys, (
+        f"only in en: {sorted(en_keys - he_keys)}; only in he: {sorted(he_keys - en_keys)}"
+    )
 
 
 async def test_theme_switch_uses_the_data_theme_attribute():
