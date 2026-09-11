@@ -96,6 +96,7 @@ def test_resolve_origin_main_never_returns_local_head(tmp_path):
 
     clone = tmp_path / "clone"
     subprocess.run(["git", "clone", "-q", str(remote), str(clone)], check=True)
+    _init_git_repo(clone)
     (clone / "extra.txt").write_text("local work\n", encoding="utf-8")
     local_sha = _commit_all(clone, "local-only commit, ahead of origin/main")
     assert local_sha != origin_sha
