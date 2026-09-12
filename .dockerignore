@@ -18,9 +18,19 @@ gcp-service-account-key*.json
 .venv/
 docs/superpowers/
 
-# Dev-only cross-repo tooling: the vendored pr-review-bot contract is a test
-# fixture (tests/test_bot_contract_parity.py) and update_bot_contract.py is a
-# developer command. The running service never reads either -- same reasoning
-# as **/tests/ above.
-contracts/
+# update_bot_contract.py is a developer command the running service never
+# invokes -- same reasoning as **/tests/ above.
 scripts/
+
+# contracts/provisioning.json is NOT dev-only anymore (2026-09-12): router.py
+# reads it at import time (the Vertex location allowlist, served by
+# GET /api/llm/vertex/locations and enforced by every endpoint that accepts
+# a location) -- see router.py's _CONTRACT/_VERTEX_LOCATIONS. Excluding all
+# of contracts/ here left main.py unable to import at all in the built
+# image (verified live: `docker run ... python -c "import main"` raised
+# FileNotFoundError), since .dockerignore silently wins over anything
+# COPY . . would otherwise include. Only the one file the service actually
+# reads is un-ignored below -- a future dev-only addition to contracts/
+# stays excluded by default.
+contracts/
+!contracts/provisioning.json

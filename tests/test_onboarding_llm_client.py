@@ -757,6 +757,28 @@ async def test_list_accessible_projects_returns_sorted_ids(monkeypatch):
     assert result.projects == ["alpha-proj", "sentinel-project", "zeta-proj"]
 
 
+async def test_list_accessible_projects_runs_the_search_off_the_event_loop(monkeypatch):
+    """AuthorizedSession is requests-based and fully synchronous, including
+    the token refresh it performs internally -- the whole call (session
+    construction, .get(), raise_for_status(), .json()) must run inside
+    asyncio.to_thread's worker thread, never on the event-loop thread
+    itself, or a slow/hung Cloud Resource Manager response would stall
+    every other visitor's concurrent request."""
+    import threading
+
+    main_thread = threading.current_thread()
+    seen_threads = []
+
+    def fake_session(creds):
+        seen_threads.append(threading.current_thread())
+        return _FakeAuthorizedSession({"projects": []})
+
+    monkeypatch.setattr(llm_client, "AuthorizedSession", fake_session)
+    await llm_client.list_accessible_projects(_b64(_SENTINEL_SERVICE_ACCOUNT))
+    assert len(seen_threads) == 1
+    assert seen_threads[0] is not main_thread
+
+
 async def test_list_accessible_projects_always_includes_the_keys_own_project(monkeypatch):
     """A service account whose IAM binding hasn't propagated is missing from
     its own projects:search results. Without the union the wizard would

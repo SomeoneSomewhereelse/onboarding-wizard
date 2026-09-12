@@ -2221,6 +2221,9 @@
       vertex_projects_unavailable: "err_llm_vertex_projects_unavailable",
       invalid_vertex_location: "err_llm_invalid_vertex_location",
       invalid_vertex_project: "err_llm_invalid_vertex_project",
+      // Client-side only -- relayVertexListModels' own fetch() throwing,
+      // never a reason a server response actually carries.
+      network_unreachable: "err_network",
     };
     llmProviderError(map[reason] || "err_llm_unreachable");
   }
@@ -2254,20 +2257,31 @@
   // Locations are a static reference list, fetched once per page load
   // (GET /api/llm/vertex/locations) rather than re-fetched per credential
   // validate -- the contract's curated order (see showVertexLocations) is
-  // the same for every visitor and every credential.
+  // the same for every visitor and every credential. Kindled once at
+  // DOMContentLoaded (fire-and-forget, since nothing needs it yet at that
+  // point) but validateVertexCredential below AWAITS this same promise
+  // before rendering the region select -- a visitor who validates faster
+  // than this GET resolves must not see an empty, submittable region
+  // dropdown.
   let vertexLocationOptions = {locations: [], default: null};
+  let vertexLocationsPromise = null;
 
-  async function loadVertexLocations() {
-    try {
-      const resp = await fetch("/api/llm/vertex/locations");
-      if (!resp.ok) throw new Error("bad status");
-      vertexLocationOptions = await resp.json();
-    } catch (err) {
-      // best-effort: an empty options list just shows no region choices;
-      // the credential-validate flow's own error handling already covers
-      // the visitor-facing failure path.
-      vertexLocationOptions = {locations: [], default: null};
+  function loadVertexLocations() {
+    if (!vertexLocationsPromise) {
+      vertexLocationsPromise = (async () => {
+        try {
+          const resp = await fetch("/api/llm/vertex/locations");
+          if (!resp.ok) throw new Error("bad status");
+          vertexLocationOptions = await resp.json();
+        } catch (err) {
+          // An empty options list just shows no region choices -- the
+          // visitor sees err_llm_invalid_vertex_location if they try to
+          // Continue anyway, same as any other rejected value.
+          vertexLocationOptions = {locations: [], default: null};
+        }
+      })();
     }
+    return vertexLocationsPromise;
   }
 
   function showVertexLocations(locations, defaultLocation) {
@@ -2306,12 +2320,24 @@
   // go through here, mirroring callSupabaseRelay's one-exit-path shape.
   async function relayVertexListModels(payload) {
     const endpoint = "/api/llm/vertex/list-models";
+    let resp;
     try {
-      const resp = await fetch(endpoint, {
+      resp = await fetch(endpoint, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload),
       });
+    } catch (err) {
+      // fetch() itself threw -- this wizard's own server was unreachable
+      // (offline, DNS, etc), never mind whether the upstream LLM provider
+      // is up. Distinct from a received-but-bad response below, same
+      // distinction validateLlmProviderCredential's gemini/groq branch
+      // already makes (err_network vs err_llm_unreachable) -- collapsing
+      // both into one reason here would tell an offline visitor "that
+      // provider is unreachable", which is the wrong diagnosis.
+      return {valid: false, reason: "network_unreachable"};
+    }
+    try {
       if (!resp.ok) throw new Error("bad status");
       return await resp.json();
     } catch (err) {
@@ -2397,11 +2423,22 @@
     const credentialFragment = {gcp_service_account_key_b64: b64};
     setFrameStatus("llm-provider", "checking");
     document.getElementById("llm-provider-validate-submit").disabled = true;
-    const body = await relayVertexListModels({service_account_key_b64: b64});
+    const [body] = await Promise.all([
+      relayVertexListModels({service_account_key_b64: b64}),
+      loadVertexLocations(),
+    ]);
     if (!body.valid) {
       llmProviderErrorForReason(body.reason);
       return;
     }
+    // Set before showLlmProviderModels, not only inside it: a zero-model
+    // pair still reveals the project/region dropdowns below (the visitor's
+    // one remedy short of re-uploading the file), and showLlmProviderModels
+    // itself never reaches its own pendingLlmProviderCredential assignment
+    // on that path (it returns early at "if (!models.length)"). Without
+    // this, onVertexPairChanged's own pendingLlmProviderCredential guard
+    // would make every dropdown change silently do nothing.
+    pendingLlmProviderCredential = {provider: "vertex", ...credentialFragment};
     growFrameToFit("llm-provider", () => {
       showVertexProjects(body.projects, body.default_project);
       showVertexLocations(vertexLocationOptions.locations, body.default_location);

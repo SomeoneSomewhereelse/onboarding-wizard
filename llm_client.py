@@ -362,12 +362,13 @@ async def probe_vertex_model(
     anything, which makes it the cheapest honest answer available.
 
     `project`/`location` default to the credential's own embedded
-    project_id and this module's fixed _VERTEX_LOCATION -- the same pair
+    project_id and this module's _VERTEX_LOCATION -- the same pair
     list_vertex_models would use -- but a caller that already knows the
-    exact provisioning target (this wizard always does: it seeds
-    slot_config with `location` fixed and `project` left for the deployed
-    service to derive from the key itself) can override either so the
-    probe verifies the SAME pair that will actually run in production.
+    exact provisioning target (this wizard always does, as of the visitor
+    project/region picker: both /api/llm/confirm and the Finish & Deploy
+    backstop pass the visitor's own chosen pair, which is also the pair
+    _seed_provider_config writes into slot_config) can override either so
+    the probe verifies the SAME pair that will actually run in production.
     """
     result = _vertex_credentials_and_project(service_account_key_b64)
     if isinstance(result, LlmApiFailed):

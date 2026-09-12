@@ -569,6 +569,46 @@ async def test_get_session_reports_render_key_and_render_service_separately(monk
     }
 
 
+async def test_get_session_reflects_vertex_project_and_location_but_never_for_other_providers(
+    monkeypatch,
+):
+    """Non-secret configuration values (a project id, a region) -- the same
+    class of field CLAUDE.md already permits relay responses to carry.
+    Gemini/groq frames never carry these keys at all, so their display
+    block must stay exactly the existing two fields."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(
+        session_id, "llm_provider",
+        {
+            "provider": "vertex",
+            "credential_value": "b64",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "chosen-proj",
+            "vertex_gcp_location": "europe-west4",
+        },
+    )
+    client = await _client()
+    resp = await client.get("/api/session", cookies={"onboarding_session": session_id})
+    assert resp.json()["frames"]["llm-provider"]["display"] == {
+        "provider": "vertex",
+        "model": "gemini-2.5-flash",
+        "vertex_gcp_project": "chosen-proj",
+        "vertex_gcp_location": "europe-west4",
+    }
+
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "gemini", "credential_value": "AIza-x", "model": "gemini-flash-latest"},
+        replace=True,
+    )
+    resp = await client.get("/api/session", cookies={"onboarding_session": session_id})
+    assert resp.json()["frames"]["llm-provider"]["display"] == {
+        "provider": "gemini",
+        "model": "gemini-flash-latest",
+    }
+
+
 async def test_get_session_reports_supabase_provisioning_once_project_created(monkeypatch):
     """ref alone (project created) is NOT complete -- database_url is what
     the final deploy step actually needs, and that's written later by
@@ -1402,6 +1442,54 @@ async def test_confirm_refuses_a_vertex_submission_missing_its_pair(monkeypatch)
     assert resp.json() == {"detail": "invalid request"}
 
 
+async def test_confirm_refuses_a_gemini_submission_carrying_a_stray_vertex_pair(monkeypatch):
+    """The other half of _pair_belongs_to_vertex_only: a gemini/groq
+    submission carrying a region is a malformed request, not a field to
+    quietly ignore."""
+    _use_fake_session_store(monkeypatch)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={
+            "provider": "gemini",
+            "credential_value": "AIza-x",
+            "model": "gemini-flash-latest",
+            "vertex_gcp_location": "us-central1",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json() == {"detail": "invalid request"}
+
+
+async def test_confirm_rejects_an_unlisted_location_without_constructing_a_client(monkeypatch):
+    """The SSRF regression test for /api/llm/confirm specifically -- Task 6
+    has this for /api/llm/vertex/list-models, but the endpoint that
+    actually WRITES session state (and is the one that gets probed) had no
+    equivalent of its own. A location is part of the Vertex hostname; an
+    unlisted value must never reach genai.Client via probe_vertex_model."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+
+    async def boom(*a, **k):
+        raise AssertionError("no Vertex client may be constructed for a rejected location")
+
+    monkeypatch.setattr(llm_client, "probe_vertex_model", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={
+            "provider": "vertex",
+            "credential_value": "b64",
+            "model": "m",
+            "vertex_gcp_project": "chosen-proj",
+            "vertex_gcp_location": "evil-attacker-host",
+        },
+        cookies={"onboarding_session": session_id},
+    )
+    assert resp.json() == {"valid": False, "reason": "invalid_vertex_location"}
+    assert fake.read_frame(session_id, "llm_provider") in (None, {})
+
+
 async def test_confirm_llm_provider_with_no_session_fails_closed():
     client = await _client()
     resp = await client.post(
@@ -2138,6 +2226,119 @@ async def test_bulk_push_seeds_and_probes_the_visitors_chosen_pair(monkeypatch):
     assert seeded == {"project": "chosen-proj", "location": "europe-west4"}
 
 
+async def test_bulk_push_refuses_a_vertex_frame_with_no_stored_pair(monkeypatch):
+    """A session confirmed against an older deploy (before this pair was
+    required/stored) can still reach here with the llm_provider frame
+    present but missing vertex_gcp_project/vertex_gcp_location.
+    session_store.SESSION_TTL is 4 hours, so this window is real. Falling
+    back to None/None would silently probe (and seed) the key's home
+    project at the SDK default region instead of refusing -- exactly the
+    defect this whole feature exists to close."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {"provider": "vertex", "credential_value": "b64", "model": "gemini-2.5-flash"},
+    )
+
+    def boom_seed(*a, **k):
+        raise AssertionError("_seed_provider_config must not run with no stored pair")
+
+    async def boom_probe(*a, **k):
+        raise AssertionError("probe_vertex_model must not run with no stored pair")
+
+    def boom_push(*a, **k):
+        raise AssertionError("push_env_vars must not run with no stored pair")
+
+    monkeypatch.setattr(router, "_seed_provider_config", boom_seed)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", boom_probe)
+    monkeypatch.setattr(render_client, "push_env_vars", boom_push)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": False, "reason": "vertex_pair_missing", "pushed": []}
+
+
+async def test_bulk_push_refuses_a_vertex_frame_with_an_unlisted_stored_location(monkeypatch):
+    """Same as the missing-pair case, but for a stored location that isn't
+    (or is no longer) in the contract allowlist -- a location is part of
+    the Vertex hostname, so a stale/corrupted session value gets the same
+    re-check a freshly-submitted one gets, not a free pass."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {
+            "provider": "vertex",
+            "credential_value": "b64",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "chosen-proj",
+            "vertex_gcp_location": "evil-attacker-host",
+        },
+    )
+
+    async def boom_probe(*a, **k):
+        raise AssertionError("no Vertex client may be constructed for a rejected location")
+
+    monkeypatch.setattr(llm_client, "probe_vertex_model", boom_probe)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json() == {"valid": False, "reason": "vertex_pair_missing", "pushed": []}
+
+
+async def test_bulk_push_never_seeds_a_stale_vertex_pair_onto_a_redone_gemini_frame(monkeypatch):
+    """/api/llm/confirm's write is a merge, not replace=True (a parked,
+    pre-existing issue -- see ISSUES.md) -- so a visitor who first confirms
+    vertex and then redoes the frame as gemini can leave the OLD
+    vertex_gcp_project/vertex_gcp_location sitting in the same frame dict
+    alongside the new gemini fields. Those stale values must never reach
+    _seed_provider_config for a gemini row."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {
+            "provider": "gemini",
+            "credential_value": "AIza-x",
+            "model": "gemini-flash-latest",
+            # Left over from an earlier vertex confirm -- confirm's merge
+            # write never clears these when a redo switches provider.
+            "vertex_gcp_project": "stale-proj",
+            "vertex_gcp_location": "europe-west4",
+        },
+    )
+    seeded = {}
+
+    def fake_seed(database_url, provider, model, project, location):
+        seeded.update(provider=provider, project=project, location=location)
+        return True
+
+    async def fake_probe_gemini_model(api_key, model):
+        return llm_client.LlmModelProbed(model=model)
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed)
+    monkeypatch.setattr(llm_client, "probe_gemini_model", fake_probe_gemini_model)
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json()["valid"] is True
+    assert seeded == {"provider": "gemini", "project": None, "location": None}
+
+
 async def test_bulk_push_reads_the_session_exactly_once(monkeypatch):
     """Reads every frame off one _get_session call rather than one
     _read_frame (and therefore one full session fetch+decrypt) per frame --
@@ -2232,6 +2433,30 @@ async def test_first_validate_returns_the_project_options(monkeypatch):
         "default_project": "test-project",
         "default_location": router._VERTEX_DEFAULT_LOCATION,
     }
+
+
+async def test_first_validate_lists_at_the_contracts_own_default_location(monkeypatch):
+    """The listing call and the dropdown's preselection (default_location)
+    must be scoped to the SAME region -- both read from
+    router._VERTEX_DEFAULT_LOCATION, never from llm_client's own separate
+    module constant, which is a second, independently maintained value
+    that happens to hold the same string today but could drift."""
+    seen = {}
+
+    async def fake_list_models(b64, project=None, location=None):
+        seen["location"] = location
+        return llm_client.VertexModelsListed(project_id="test-project", models=["m1"])
+
+    async def fake_list_projects(b64):
+        return llm_client.VertexProjectsListed(projects=["test-project"])
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", fake_list_models)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", fake_list_projects)
+    monkeypatch.setattr(llm_client, "_VERTEX_LOCATION", "some-other-region-entirely")
+    client = await _client()
+    resp = await client.post("/api/llm/vertex/list-models", json={"service_account_key_b64": "k"})
+    assert seen["location"] == router._VERTEX_DEFAULT_LOCATION
+    assert resp.json()["default_location"] == router._VERTEX_DEFAULT_LOCATION
 
 
 async def test_a_dropdown_change_does_not_repeat_the_projects_listing(monkeypatch):

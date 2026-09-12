@@ -555,13 +555,20 @@ async def get_session_state(request: Request) -> dict:
 
     llm_provider = data.get("llm_provider")
     if llm_provider:
-        frames["llm-provider"] = {
-            "complete": True,
-            "display": {
-                "provider": llm_provider.get("provider"),
-                "model": llm_provider.get("model"),
-            },
+        display = {
+            "provider": llm_provider.get("provider"),
+            "model": llm_provider.get("model"),
         }
+        if llm_provider.get("provider") == "vertex":
+            # Non-secret configuration values (a project id, a region) --
+            # the same class of field CLAUDE.md already permits relay
+            # responses to carry. restoreFromSession() doesn't read either
+            # today (only display.provider), but the frame's own confirmed
+            # choice should be inspectable via this endpoint the same way
+            # every other frame's non-secret state already is.
+            display["vertex_gcp_project"] = llm_provider.get("vertex_gcp_project")
+            display["vertex_gcp_location"] = llm_provider.get("vertex_gcp_location")
+        frames["llm-provider"] = {"complete": True, "display": display}
 
     if data.get("uptime_pinger"):
         frames["uptime-pinger"] = {"complete": True, "display": {}}
@@ -805,13 +812,21 @@ async def list_vertex_models(payload: LlmVertexListModelsRequest) -> dict:
     if payload.project is not None and not _valid_vertex_project(payload.project):
         return {"valid": False, "reason": "invalid_vertex_project"}
 
+    both_absent = payload.project is None and payload.location is None
+    # On the both-absent path, list at the contract's OWN default location
+    # explicitly rather than leaving list_vertex_models fall back to its
+    # own module constant -- the two happen to hold the same string today,
+    # but they are two independently maintained values, and the dropdown's
+    # preselection (default_location below) must never drift from the
+    # region the listing was actually scoped to.
+    location = _VERTEX_DEFAULT_LOCATION if both_absent else payload.location
     result = await llm_client.list_vertex_models(
-        payload.service_account_key_b64, payload.project, payload.location
+        payload.service_account_key_b64, payload.project, location
     )
     if not isinstance(result, llm_client.VertexModelsListed):
         return {"valid": False, "reason": result.reason}
     response = {"valid": True, "project_id": result.project_id, "models": result.models}
-    if payload.project is None and payload.location is None:
+    if both_absent:
         projects = await llm_client.list_accessible_projects(payload.service_account_key_b64)
         if not isinstance(projects, llm_client.VertexProjectsListed):
             return {"valid": False, "reason": projects.reason}
@@ -1056,12 +1071,38 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
         # key-scoped, unlike Vertex's).
         provider = llm_provider["provider"]
         probe: llm_client.LlmModelProbed | llm_client.LlmApiFailed | None = None
+        # Only ever populated in the vertex branch below and only ever
+        # passed to _seed_provider_config for vertex -- a gemini/groq
+        # submission's frame dict can still carry a STALE vertex pair left
+        # over from an earlier vertex confirm (the merge write /api/llm/
+        # confirm uses, not replace=True, per the parked ISSUES.md entry),
+        # and unconditionally reading it here would write those stale
+        # values onto the gemini/groq provider's own slot_config row.
+        vertex_project: str | None = None
+        vertex_location: str | None = None
         if provider == "vertex":
+            # /api/llm/confirm has required and validated this pair for
+            # every vertex submission since this feature shipped, but a
+            # session confirmed against an older deploy (session_store.
+            # SESSION_TTL is 4 hours, so this window is real, not
+            # theoretical) can still reach here with the frame present but
+            # missing/stale vertex_gcp_project/vertex_gcp_location. Falling
+            # back to None/None here would silently probe (and then seed)
+            # the key's home project at the SDK default region instead of
+            # the pair the visitor actually confirmed -- exactly the defect
+            # this whole feature exists to close. Refuse instead of
+            # guessing; re-checking the allowlist membership here (not just
+            # presence) also closes the one path identified as
+            # session-sourced rather than freshly visitor-validated.
+            vertex_project = llm_provider.get("vertex_gcp_project")
+            vertex_location = llm_provider.get("vertex_gcp_location")
+            if not vertex_project or not _valid_vertex_location(vertex_location):
+                return {"valid": False, "reason": "vertex_pair_missing", "pushed": []}
             probe = await llm_client.probe_vertex_model(
                 llm_provider["credential_value"],
                 llm_provider["model"],
-                project=llm_provider.get("vertex_gcp_project"),
-                location=llm_provider.get("vertex_gcp_location"),
+                project=vertex_project,
+                location=vertex_location,
             )
         elif provider == "gemini":
             probe = await llm_client.probe_gemini_model(
@@ -1083,8 +1124,8 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
             supabase["database_url"],
             llm_provider["provider"],
             llm_provider["model"],
-            llm_provider.get("vertex_gcp_project"),
-            llm_provider.get("vertex_gcp_location"),
+            vertex_project,
+            vertex_location,
         )
         if not seeded:
             return {"valid": False, "reason": "slot_config_seed_failed", "pushed": []}

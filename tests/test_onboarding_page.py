@@ -882,6 +882,54 @@ async def test_changing_a_dropdown_clears_the_selected_model():
     assert 'document.getElementById("llm-provider-model-select").innerHTML = "";' in fn_body
 
 
+async def test_relay_vertex_list_models_distinguishes_network_failure_from_bad_response():
+    """A thrown fetch() (offline, DNS) is "can't reach the wizard's own
+    server" (err_network); a received-but-bad response is "the provider
+    itself is unreachable" (err_llm_unreachable via provider_unreachable)
+    -- validateLlmProviderCredential's gemini/groq branch already makes
+    this distinction, and relayVertexListModels must not collapse it."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("async function relayVertexListModels")
+    fn_body = body[fn_start : body.index("function showLlmProviderModels")]
+    assert 'reason: "network_unreachable"' in fn_body
+    assert 'reason: "provider_unreachable"' in fn_body
+    assert 'network_unreachable: "err_network"' in body
+
+
+async def test_vertex_validate_awaits_the_locations_fetch_before_rendering():
+    """loadVertexLocations() is kindled fire-and-forget at DOMContentLoaded,
+    but a visitor who validates faster than that GET resolves must not see
+    an empty, submittable region dropdown -- validateVertexCredential must
+    await the same promise (not just read the possibly-still-default
+    vertexLocationOptions) before calling showVertexLocations."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("async function validateVertexCredential")
+    fn_body = body[fn_start : body.index("async function onVertexPairChanged")]
+    assert "loadVertexLocations()" in fn_body
+    await_pos = fn_body.index("loadVertexLocations()")
+    show_pos = fn_body.index("showVertexLocations(")
+    assert await_pos < show_pos
+
+
+async def test_vertex_pending_credential_is_set_even_when_the_default_pair_has_no_models():
+    """showLlmProviderModels returns early (never reaching its own
+    pendingLlmProviderCredential assignment) when the listing comes back
+    empty -- so validateVertexCredential must set it itself, before that
+    call, or a zero-model default pair leaves onVertexPairChanged's own
+    "if (!pendingLlmProviderCredential) return;" guard permanently dead:
+    the visitor would see the project/region dropdowns rendered but unable
+    to do anything when changed."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("async function validateVertexCredential")
+    fn_body = body[fn_start : body.index("async function onVertexPairChanged")]
+    assign_pos = fn_body.index('pendingLlmProviderCredential = {provider: "vertex"')
+    show_models_pos = fn_body.index("showLlmProviderModels(body.models,")
+    assert assign_pos < show_models_pos
+
+
 async def test_frame5_has_blocked_and_form_sections():
     client = await _client()
     body = (await client.get("/")).text

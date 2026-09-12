@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 DOCKERFILE = (Path(__file__).parent.parent / "Dockerfile").read_text()
+DOCKERIGNORE = (Path(__file__).parent.parent / ".dockerignore").read_text()
 
 
 def test_dockerfile_never_chowns_app_directory():
@@ -34,3 +35,26 @@ def test_dockerfile_still_drops_root_before_cmd():
     assert "USER appuser" in DOCKERFILE
     assert DOCKERFILE.index("useradd -m -u 1000 appuser") < DOCKERFILE.index("USER appuser")
     assert DOCKERFILE.index("USER appuser") < DOCKERFILE.index("CMD [")
+
+
+def test_dockerignore_does_not_exclude_the_contract_router_reads_at_import_time():
+    """router.py reads contracts/provisioning.json at MODULE IMPORT time
+    (the Vertex location allowlist -- see router.py's _CONTRACT/
+    _VERTEX_LOCATIONS), so it must survive into the built image's COPY . .
+    -- unlike the rest of contracts/ (the bot-contract-parity test fixture),
+    which stays dev-only and excluded.
+
+    Verified live once (not just by this source check): building the image
+    with a bare `contracts/` exclusion and running
+    `python -c "import main"` inside it raised FileNotFoundError --
+    .dockerignore silently wins over COPY . ., so pytest/ruff running
+    against the repo tree can never see this class of bug (that gap is
+    exactly what the deploy-verify skill's live boot smoke test exists
+    for). This test only guards against someone silently reintroducing a
+    blanket `contracts/` exclusion with no `!contracts/provisioning.json`
+    counter-pattern after it -- it cannot verify Docker's own ignore-engine
+    behavior (negation order, `**` semantics), which is what the live
+    build already did."""
+    assert "contracts/" in DOCKERIGNORE
+    assert "!contracts/provisioning.json" in DOCKERIGNORE
+    assert DOCKERIGNORE.index("contracts/") < DOCKERIGNORE.index("!contracts/provisioning.json")
