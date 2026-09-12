@@ -1103,6 +1103,12 @@
           <span class="file-field-name" id="llm-provider-file-name"></span>
         </div>
         <button id="llm-provider-validate-submit" type="button" data-i18n="validate_button" style="display: none;"></button>
+        <div id="llm-provider-vertex-pair-section" style="display: none;">
+          <label for="llm-provider-project-select" data-i18n="frame4_project_label"></label>
+          <select id="llm-provider-project-select"></select>
+          <label for="llm-provider-location-select" data-i18n="frame4_region_label"></label>
+          <select id="llm-provider-location-select"></select>
+        </div>
         <div id="llm-provider-model-section" style="display: none;">
           <p data-i18n="frame4_model_instructions"></p>
           <select id="llm-provider-model-select"></select>
@@ -1302,6 +1308,8 @@
       frame4_provider_vertex: "Vertex AI (GCP service-account file)",
       frame4_model_instructions: "Choose the model your deployed service will use.",
       frame4_model_placeholder: "Choose a model…",
+      frame4_project_label: "GCP project",
+      frame4_region_label: "Region",
       err_llm_no_provider: "Pick a provider first.",
       err_llm_empty_key: "Paste your API key first.",
       err_llm_no_file: "Choose your GCP service-account JSON file first.",
@@ -1312,6 +1320,11 @@
       err_llm_unreachable: "That provider is unreachable right now. Try again in a moment.",
       err_llm_no_models_available: "This credential is valid, but no usable models are available. Check your account/project has an eligible model enabled.",
       err_llm_no_model_selected: "Pick a model first.",
+      err_llm_model_not_callable: "Your provider lists this model, but this project isn't entitled to call it. Pick a different model below.",
+      err_llm_model_probe_unavailable: "Couldn't verify this model right now (the provider is unreachable). Try again in a moment.",
+      err_llm_vertex_projects_unavailable: "Couldn't list your GCP projects. Enable the Cloud Resource Manager API on this project, or grant the service account the resourcemanager.projects.get permission, then try again.",
+      err_llm_invalid_vertex_location: "That selection isn't valid. Reload the page and try again.",
+      err_llm_invalid_vertex_project: "That selection isn't valid. Reload the page and try again.",
       err_llm_storage_failed: "Couldn't save this in your browser. Try again.",
       frame5_instructions: "Paste your UptimeRobot Main API Key (My Settings → API Keys → Main API Key — not a Monitor-Specific key, which won't work here) to create the keep-warm monitor for your deployed service.",
       frame5_blocked_no_render_url: "Complete your Render deployment first — this step needs its URL.",
@@ -1457,6 +1470,8 @@
       frame4_provider_vertex: "Vertex AI (קובץ חשבון שירות של GCP)",
       frame4_model_instructions: "בחרו את המודל שהשירות שלכם ישתמש בו.",
       frame4_model_placeholder: "בחרו מודל…",
+      frame4_project_label: "פרויקט GCP",
+      frame4_region_label: "אזור",
       err_llm_no_provider: "בחרו ספק קודם.",
       err_llm_empty_key: "הדביקו קודם את מפתח ה-API שלכם.",
       err_llm_no_file: "בחרו קודם את קובץ חשבון השירות של GCP.",
@@ -1467,6 +1482,11 @@
       err_llm_unreachable: "הספק אינו זמין כרגע. נסו שוב בעוד רגע.",
       err_llm_no_models_available: "פרטי ההתחברות תקינים, אך אין מודלים זמינים לשימוש. ודאו שיש לחשבון/לפרויקט שלכם מודל מתאים מופעל.",
       err_llm_no_model_selected: "בחרו מודל קודם.",
+      err_llm_model_not_callable: "הספק שלכם מציג את המודל הזה ברשימה, אך לפרויקט הזה אין הרשאה לקרוא לו. בחרו מודל אחר למטה.",
+      err_llm_model_probe_unavailable: "לא ניתן היה לאמת את המודל הזה כרגע (הספק אינו זמין). נסו שוב בעוד רגע.",
+      err_llm_vertex_projects_unavailable: "לא ניתן היה לטעון את רשימת פרויקטי ה-GCP שלכם. הפעילו את ה-API בשם Cloud Resource Manager עבור הפרויקט, או הענקו לחשבון השירות את ההרשאה resourcemanager.projects.get, ונסו שוב.",
+      err_llm_invalid_vertex_location: "הבחירה הזו אינה תקינה. רעננו את הדף ונסו שוב.",
+      err_llm_invalid_vertex_project: "הבחירה הזו אינה תקינה. רעננו את הדף ונסו שוב.",
       err_llm_storage_failed: "לא ניתן היה לשמור זאת בדפדפן זה. נסו שוב.",
       frame5_instructions: "הדביקו את מפתח ה-API הראשי שלכם ב-UptimeRobot:<ol><li>My Settings</li><li>API Keys</li><li>Main API Key</li></ol>(לא מפתח Monitor-Specific, שלא יעבוד כאן) כדי ליצור את הפינגר לשמירה על פעילות עבור השירות שפרסתם.",
       frame5_blocked_no_render_url: "השלימו קודם את פריסת ה-Render שלכם — שלב זה זקוק לכתובת ה-URL שלה.",
@@ -2162,6 +2182,9 @@
     document.getElementById("llm-provider-validate-submit").style.display = "none";
     document.getElementById("llm-provider-validate-submit").disabled = false;
     document.getElementById("llm-provider-continue-submit").disabled = false;
+    document.getElementById("llm-provider-vertex-pair-section").style.display = "none";
+    document.getElementById("llm-provider-project-select").innerHTML = "";
+    document.getElementById("llm-provider-location-select").innerHTML = "";
     document.getElementById("llm-provider-model-section").style.display = "none";
     document.getElementById("llm-provider-model-select").innerHTML = "";
     document.getElementById("llm-provider-error").textContent = "";
@@ -2184,6 +2207,11 @@
       provider_unreachable: "err_llm_unreachable",
       invalid_service_account_json: "err_llm_invalid_service_account_json",
       no_session: "err_no_session",
+      model_not_callable: "err_llm_model_not_callable",
+      model_probe_unavailable: "err_llm_model_probe_unavailable",
+      vertex_projects_unavailable: "err_llm_vertex_projects_unavailable",
+      invalid_vertex_location: "err_llm_invalid_vertex_location",
+      invalid_vertex_project: "err_llm_invalid_vertex_project",
     };
     llmProviderError(map[reason] || "err_llm_unreachable");
   }
@@ -2195,6 +2223,9 @@
 
   function handleLlmProviderChoice() {
     const provider = getSelectedLlmProvider();
+    document.getElementById("llm-provider-vertex-pair-section").style.display = "none";
+    document.getElementById("llm-provider-project-select").innerHTML = "";
+    document.getElementById("llm-provider-location-select").innerHTML = "";
     document.getElementById("llm-provider-model-section").style.display = "none";
     document.getElementById("llm-provider-model-select").innerHTML = "";
     document.getElementById("llm-provider-error").textContent = "";
@@ -2209,6 +2240,74 @@
     apiKeyInput.style.display = (provider === "gemini" || provider === "groq") ? "block" : "none";
     document.getElementById("llm-provider-file-field").style.display = (provider === "vertex") ? "flex" : "none";
     submitBtn.style.display = provider ? "block" : "none";
+  }
+
+  // Locations are a static reference list, fetched once per page load
+  // (GET /api/llm/vertex/locations) rather than re-fetched per credential
+  // validate -- the contract's curated order (see showVertexLocations) is
+  // the same for every visitor and every credential.
+  let vertexLocationOptions = {locations: [], default: null};
+
+  async function loadVertexLocations() {
+    try {
+      const resp = await fetch("/api/llm/vertex/locations");
+      if (!resp.ok) throw new Error("bad status");
+      vertexLocationOptions = await resp.json();
+    } catch (err) {
+      // best-effort: an empty options list just shows no region choices;
+      // the credential-validate flow's own error handling already covers
+      // the visitor-facing failure path.
+      vertexLocationOptions = {locations: [], default: null};
+    }
+  }
+
+  function showVertexLocations(locations, defaultLocation) {
+    const select = document.getElementById("llm-provider-location-select");
+    select.innerHTML = "";
+    // Rendered in the RECEIVED order -- the contract's curated geographic
+    // grouping (`global` last), not alphabetical. Rearranging this would
+    // scatter `global` into the g's and bury us-central1. Deliberately no
+    // reordering step here.
+    locations.forEach((loc) => {
+      const opt = document.createElement("option");
+      opt.value = loc;
+      opt.textContent = loc;
+      if (loc === defaultLocation) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  function showVertexProjects(projects, defaultProject) {
+    const select = document.getElementById("llm-provider-project-select");
+    select.innerHTML = "";
+    // Alphabetical, same rule as showLlmProviderModels' sortedModels -- a
+    // project list carries no authored order.
+    const sortedProjects = [...projects].sort((a, b) => a.localeCompare(b));
+    sortedProjects.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p;
+      if (p === defaultProject) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  // The only call site for /api/llm/vertex/list-models -- both the initial
+  // validate and every dropdown-change re-list (onVertexPairChanged below)
+  // go through here, mirroring callSupabaseRelay's one-exit-path shape.
+  async function relayVertexListModels(payload) {
+    const endpoint = "/api/llm/vertex/list-models";
+    try {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) throw new Error("bad status");
+      return await resp.json();
+    } catch (err) {
+      return {valid: false, reason: "provider_unreachable"};
+    }
   }
 
   function showLlmProviderModels(models, provider, credentialFragment) {
@@ -2268,15 +2367,76 @@
     }
   }
 
+  async function validateVertexCredential() {
+    const fileInput = document.getElementById("llm-provider-file-input");
+    const file = fileInput.files[0];
+    if (!file) {
+      llmProviderError("err_llm_no_file");
+      return;
+    }
+    let b64;
+    try {
+      b64 = await readFileAsBase64(file);
+    } catch (err) {
+      llmProviderError("err_llm_invalid_service_account_json");
+      return;
+    }
+    if (!(await base64ToJsonSanityCheck(b64))) {
+      llmProviderError("err_llm_invalid_service_account_json");
+      return;
+    }
+    const credentialFragment = {gcp_service_account_key_b64: b64};
+    setFrameStatus("llm-provider", "checking");
+    document.getElementById("llm-provider-validate-submit").disabled = true;
+    const body = await relayVertexListModels({service_account_key_b64: b64});
+    if (!body.valid) {
+      llmProviderErrorForReason(body.reason);
+      return;
+    }
+    growFrameToFit("llm-provider", () => {
+      showVertexProjects(body.projects, body.default_project);
+      showVertexLocations(vertexLocationOptions.locations, body.default_location);
+      document.getElementById("llm-provider-vertex-pair-section").style.display = "block";
+    });
+    showLlmProviderModels(body.models, "vertex", credentialFragment);
+  }
+
+  async function onVertexPairChanged() {
+    document.getElementById("llm-provider-model-select").innerHTML = "";
+    document.getElementById("llm-provider-error").textContent = "";
+    currentLlmProviderErrorKey = null;
+    if (!pendingLlmProviderCredential) return;
+    const project = document.getElementById("llm-provider-project-select").value;
+    const location = document.getElementById("llm-provider-location-select").value;
+    const credentialFragment = {
+      gcp_service_account_key_b64: pendingLlmProviderCredential.gcp_service_account_key_b64,
+    };
+    const body = await relayVertexListModels({
+      service_account_key_b64: credentialFragment.gcp_service_account_key_b64,
+      project,
+      location,
+    });
+    if (!body.valid) {
+      llmProviderErrorForReason(body.reason);
+      return;
+    }
+    showLlmProviderModels(body.models, "vertex", credentialFragment);
+  }
+
   async function validateLlmProviderCredential() {
     const provider = getSelectedLlmProvider();
     document.getElementById("llm-provider-error").textContent = "";
     currentLlmProviderErrorKey = null;
+    document.getElementById("llm-provider-vertex-pair-section").style.display = "none";
     document.getElementById("llm-provider-model-section").style.display = "none";
     document.getElementById("llm-provider-model-select").innerHTML = "";
     pendingLlmProviderCredential = null;
     if (!provider) {
       llmProviderError("err_llm_no_provider");
+      return;
+    }
+    if (provider === "vertex") {
+      await validateVertexCredential();
       return;
     }
     let endpoint, payload, credentialFragment;
@@ -2289,7 +2449,7 @@
       endpoint = "/api/llm/gemini/list-models";
       payload = {api_key: apiKey};
       credentialFragment = {api_key: apiKey};
-    } else if (provider === "groq") {
+    } else {
       const apiKey = document.getElementById("llm-provider-api-key-input").value.trim();
       if (!apiKey) {
         llmProviderError("err_llm_empty_key");
@@ -2298,27 +2458,6 @@
       endpoint = "/api/llm/groq/list-models";
       payload = {api_key: apiKey};
       credentialFragment = {api_key: apiKey};
-    } else {
-      const fileInput = document.getElementById("llm-provider-file-input");
-      const file = fileInput.files[0];
-      if (!file) {
-        llmProviderError("err_llm_no_file");
-        return;
-      }
-      let b64;
-      try {
-        b64 = await readFileAsBase64(file);
-      } catch (err) {
-        llmProviderError("err_llm_invalid_service_account_json");
-        return;
-      }
-      if (!(await base64ToJsonSanityCheck(b64))) {
-        llmProviderError("err_llm_invalid_service_account_json");
-        return;
-      }
-      endpoint = "/api/llm/vertex/list-models";
-      payload = {service_account_key_b64: b64};
-      credentialFragment = {gcp_service_account_key_b64: b64};
     }
     setFrameStatus("llm-provider", "checking");
     document.getElementById("llm-provider-validate-submit").disabled = true;
@@ -2367,12 +2506,17 @@
     const credentialValue = provider === "vertex"
       ? pendingLlmProviderCredential.gcp_service_account_key_b64
       : pendingLlmProviderCredential.api_key;
+    const confirmPayload = {provider, credential_value: credentialValue, model};
+    if (provider === "vertex") {
+      confirmPayload.vertex_gcp_project = document.getElementById("llm-provider-project-select").value;
+      confirmPayload.vertex_gcp_location = document.getElementById("llm-provider-location-select").value;
+    }
     let resp, body;
     try {
       resp = await fetch("/api/llm/confirm", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({provider, credential_value: credentialValue, model}),
+        body: JSON.stringify(confirmPayload),
       });
       if (!resp.ok) throw new Error("bad status");
       body = await resp.json();
@@ -4000,6 +4144,9 @@
     document.getElementById("supabase-check-status-submit").addEventListener("click", checkSupabaseStatusOnce);
     document.getElementById("llm-provider-validate-submit").addEventListener("click", validateLlmProviderCredential);
     document.getElementById("llm-provider-continue-submit").addEventListener("click", confirmLlmProviderModel);
+    document.getElementById("llm-provider-project-select").addEventListener("change", onVertexPairChanged);
+    document.getElementById("llm-provider-location-select").addEventListener("change", onVertexPairChanged);
+    loadVertexLocations();
     document.getElementById("uptime-pinger-submit").addEventListener("click", submitUptimeRobotKey);
     document.getElementById("frame-uptime-pinger").addEventListener("toggle", () => {
       if (document.getElementById("frame-uptime-pinger").open) {

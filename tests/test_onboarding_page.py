@@ -838,6 +838,50 @@ async def test_switching_llm_provider_clears_stale_credential_input():
     assert 'fileInput.value = "";' in fn_body
 
 
+async def test_vertex_frame_offers_project_and_region_dropdowns():
+    client = await _client()
+    body = (await client.get("/")).text
+    assert '<select id="llm-provider-project-select">' in body
+    assert '<select id="llm-provider-location-select">' in body
+
+
+async def test_project_options_are_sorted_alphabetically():
+    """Same rule as the model dropdown -- a project list carries no authored
+    order, so it sorts by name."""
+    client = await _client()
+    body = (await client.get("/")).text
+    assert "const sortedProjects = [...projects].sort((a, b) => a.localeCompare(b));" in body
+
+
+async def test_location_options_are_rendered_in_contract_order_not_sorted():
+    """The contract's order is a curated geographic grouping with `global`
+    last. Sorting it would scatter `global` into the g's and bury
+    us-central1 -- so this asserts the absence of a sort, deliberately."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("function showVertexLocations")
+    fn_body = body[fn_start : body.index("}", body.index("locations.forEach"))]
+    assert "sort(" not in fn_body
+
+
+async def test_vertex_list_models_endpoint_still_leaves_the_page_exactly_once():
+    """Both the first validate and every dropdown-change re-list go through
+    one shared helper -- one credential, one exit path."""
+    client = await _client()
+    body = (await client.get("/")).text
+    assert body.count('endpoint = "/api/llm/vertex/list-models"') == 1
+
+
+async def test_changing_a_dropdown_clears_the_selected_model():
+    """A model verified against one project/region says nothing about
+    another pair."""
+    client = await _client()
+    body = (await client.get("/")).text
+    fn_start = body.index("function onVertexPairChanged")
+    fn_body = body[fn_start : fn_start + 800]
+    assert 'document.getElementById("llm-provider-model-select").innerHTML = "";' in fn_body
+
+
 async def test_frame5_has_blocked_and_form_sections():
     client = await _client()
     body = (await client.get("/")).text
