@@ -954,13 +954,17 @@ async def test_groq_list_models_validation_error_never_echoes_the_key():
 
 
 async def test_vertex_list_models_returns_models_and_project_id(monkeypatch):
-    async def fake_list(service_account_key_b64):
+    async def fake_list(service_account_key_b64, project=None, location=None):
         assert service_account_key_b64 == "SENTINEL_B64"
         return llm_client.VertexModelsListed(
             project_id="sentinel-project", models=["gemini-2.5-flash"]
         )
 
+    async def fake_list_projects(service_account_key_b64):
+        return llm_client.VertexProjectsListed(projects=["sentinel-project"])
+
     monkeypatch.setattr(llm_client, "list_vertex_models", fake_list)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", fake_list_projects)
     client = await _client()
     resp = await client.post(
         "/api/llm/vertex/list-models", json={"service_account_key_b64": "SENTINEL_B64"}
@@ -969,11 +973,14 @@ async def test_vertex_list_models_returns_models_and_project_id(monkeypatch):
         "valid": True,
         "project_id": "sentinel-project",
         "models": ["gemini-2.5-flash"],
+        "projects": ["sentinel-project"],
+        "default_project": "sentinel-project",
+        "default_location": router._VERTEX_DEFAULT_LOCATION,
     }
 
 
 async def test_vertex_list_models_reports_failure_reason(monkeypatch):
-    async def fake_list(service_account_key_b64):
+    async def fake_list(service_account_key_b64, project=None, location=None):
         return llm_client.LlmApiFailed(reason="invalid_service_account_json")
 
     monkeypatch.setattr(llm_client, "list_vertex_models", fake_list)
@@ -2049,3 +2056,88 @@ def test_project_ids_are_pattern_checked():
     assert not router._valid_vertex_project("Bad_Project")
     assert not router._valid_vertex_project("x")
     assert not router._valid_vertex_project("")
+
+
+async def test_first_validate_returns_the_project_options(monkeypatch):
+    async def fake_list_models(b64, project=None, location=None):
+        return llm_client.VertexModelsListed(project_id="test-project", models=["m1"])
+
+    async def fake_list_projects(b64):
+        return llm_client.VertexProjectsListed(projects=["a-proj", "test-project"])
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", fake_list_models)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", fake_list_projects)
+    client = await _client()
+    resp = await client.post("/api/llm/vertex/list-models", json={"service_account_key_b64": "k"})
+    assert resp.json() == {
+        "valid": True,
+        "project_id": "test-project",
+        "models": ["m1"],
+        "projects": ["a-proj", "test-project"],
+        "default_project": "test-project",
+        "default_location": router._VERTEX_DEFAULT_LOCATION,
+    }
+
+
+async def test_a_dropdown_change_does_not_repeat_the_projects_listing(monkeypatch):
+    """One live Cloud Resource Manager call per credential, not one per
+    dropdown change -- the burst pattern CLAUDE.md's LLM hygiene forbids."""
+    async def fake_list_models(b64, project=None, location=None):
+        return llm_client.VertexModelsListed(project_id=project, models=["m1"])
+
+    async def boom(b64):
+        raise AssertionError("re-validate must not repeat the projects listing")
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", fake_list_models)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/vertex/list-models",
+        json={"service_account_key_b64": "k", "project": "other-proj", "location": "europe-west4"},
+    )
+    assert resp.json() == {"valid": True, "project_id": "other-proj", "models": ["m1"]}
+
+
+async def test_an_unlisted_location_is_refused_without_constructing_a_client(monkeypatch):
+    """The SSRF regression test: a well-shaped but undeclared location must
+    never reach genai.Client -- a location is part of the hostname."""
+    async def boom(*a, **k):
+        raise AssertionError("no Vertex client may be constructed for a rejected location")
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", boom)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/vertex/list-models",
+        json={"service_account_key_b64": "k", "location": "evil-attacker-host"},
+    )
+    assert resp.json() == {"valid": False, "reason": "invalid_vertex_location"}
+
+
+async def test_a_malformed_project_is_refused(monkeypatch):
+    async def boom(*a, **k):
+        raise AssertionError("no listing may run for a rejected project")
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", boom)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/vertex/list-models",
+        json={"service_account_key_b64": "k", "project": "Bad_Project"},
+    )
+    assert resp.json() == {"valid": False, "reason": "invalid_vertex_project"}
+
+
+async def test_a_failed_projects_listing_fails_the_whole_call(monkeypatch):
+    """The frame cannot offer a project dropdown it could not populate."""
+    async def fake_list_models(b64, project=None, location=None):
+        return llm_client.VertexModelsListed(project_id="test-project", models=["m1"])
+
+    async def fake_list_projects(b64):
+        return llm_client.LlmApiFailed(reason="vertex_projects_unavailable")
+
+    monkeypatch.setattr(llm_client, "list_vertex_models", fake_list_models)
+    monkeypatch.setattr(llm_client, "list_accessible_projects", fake_list_projects)
+    client = await _client()
+    resp = await client.post("/api/llm/vertex/list-models", json={"service_account_key_b64": "k"})
+    assert resp.json() == {"valid": False, "reason": "vertex_projects_unavailable"}

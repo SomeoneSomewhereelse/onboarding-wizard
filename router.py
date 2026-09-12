@@ -130,6 +130,8 @@ class LlmGroqListModelsRequest(BaseModel):
 
 class LlmVertexListModelsRequest(BaseModel):
     service_account_key_b64: str = Field(min_length=1, max_length=16384)
+    project: str | None = None
+    location: str | None = None
 
 
 class UptimeRobotCreateMonitorRequest(BaseModel):
@@ -776,10 +778,31 @@ async def get_vertex_locations() -> dict:
 
 @router.post("/api/llm/vertex/list-models")
 async def list_vertex_models(payload: LlmVertexListModelsRequest) -> dict:
-    result = await llm_client.list_vertex_models(payload.service_account_key_b64)
-    if isinstance(result, llm_client.VertexModelsListed):
-        return {"valid": True, "project_id": result.project_id, "models": result.models}
-    return {"valid": False, "reason": result.reason}
+    """Both fields absent means "first validate of a freshly uploaded key":
+    list models at the key's own project/default region AND run the one
+    projects:search that populates the dropdown. Either present means "the
+    visitor changed a dropdown": re-list models for that exact pair only --
+    repeating the projects listing per change would be a live call per
+    keystroke."""
+    if payload.location is not None and not _valid_vertex_location(payload.location):
+        return {"valid": False, "reason": "invalid_vertex_location"}
+    if payload.project is not None and not _valid_vertex_project(payload.project):
+        return {"valid": False, "reason": "invalid_vertex_project"}
+
+    result = await llm_client.list_vertex_models(
+        payload.service_account_key_b64, payload.project, payload.location
+    )
+    if not isinstance(result, llm_client.VertexModelsListed):
+        return {"valid": False, "reason": result.reason}
+    response = {"valid": True, "project_id": result.project_id, "models": result.models}
+    if payload.project is None and payload.location is None:
+        projects = await llm_client.list_accessible_projects(payload.service_account_key_b64)
+        if not isinstance(projects, llm_client.VertexProjectsListed):
+            return {"valid": False, "reason": projects.reason}
+        response["projects"] = projects.projects
+        response["default_project"] = result.project_id
+        response["default_location"] = _VERTEX_DEFAULT_LOCATION
+    return response
 
 
 @router.post("/api/llm/confirm")
