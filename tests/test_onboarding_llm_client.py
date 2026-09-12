@@ -22,6 +22,7 @@ import httpx
 import respx
 from google.auth import exceptions as google_auth_exceptions
 from google.genai import errors as genai_errors
+from requests import exceptions as requests_exceptions
 
 import llm_client
 
@@ -720,3 +721,66 @@ async def test_probe_gemini_model_closes_the_client_on_success(monkeypatch):
 
 async def test_model_probe_error_codes_are_exactly_the_two_documented():
     assert llm_client.MODEL_PROBE_ERROR_CODES == ("model_not_callable", "model_probe_unavailable")
+
+
+class _FakeResponse:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+class _FakeAuthorizedSession:
+    def __init__(self, payload, status=200):
+        self._payload, self._status = payload, status
+
+    def get(self, url, timeout=None):
+        assert url == "https://cloudresourcemanager.googleapis.com/v3/projects:search"
+        return self
+
+    def raise_for_status(self):
+        if self._status != 200:
+            raise requests_exceptions.HTTPError(response=_FakeResponse(self._status))
+
+    def json(self):
+        return self._payload
+
+
+async def test_list_accessible_projects_returns_sorted_ids(monkeypatch):
+    _install_fake_client(monkeypatch)
+
+    def fake_session(creds):
+        return _FakeAuthorizedSession(
+            {"projects": [{"projectId": "zeta-proj"}, {"projectId": "alpha-proj"}]}
+        )
+
+    monkeypatch.setattr(llm_client, "AuthorizedSession", fake_session)
+    result = await llm_client.list_accessible_projects(_b64(_SENTINEL_SERVICE_ACCOUNT))
+    assert result.projects == ["alpha-proj", "sentinel-project", "zeta-proj"]
+
+
+async def test_list_accessible_projects_always_includes_the_keys_own_project(monkeypatch):
+    """A service account whose IAM binding hasn't propagated is missing from
+    its own projects:search results. Without the union the wizard would
+    refuse to offer the one project the credential certainly works against."""
+    _install_fake_client(monkeypatch)
+    monkeypatch.setattr(
+        llm_client, "AuthorizedSession", lambda creds: _FakeAuthorizedSession({"projects": []})
+    )
+    result = await llm_client.list_accessible_projects(_b64(_SENTINEL_SERVICE_ACCOUNT))
+    assert result.projects == ["sentinel-project"]
+
+
+async def test_list_accessible_projects_reports_a_denied_listing_distinctly(monkeypatch):
+    """403 here means Cloud Resource Manager isn't enabled or the account
+    lacks resourcemanager.projects.get -- actionable, and not the same fact
+    as a bad credential."""
+    _install_fake_client(monkeypatch)
+    monkeypatch.setattr(
+        llm_client, "AuthorizedSession", lambda creds: _FakeAuthorizedSession(None, status=403)
+    )
+    result = await llm_client.list_accessible_projects(_b64(_SENTINEL_SERVICE_ACCOUNT))
+    assert result == llm_client.LlmApiFailed(reason="vertex_projects_unavailable")
+
+
+async def test_list_accessible_projects_rejects_a_malformed_key():
+    result = await llm_client.list_accessible_projects("not-base64!!")
+    assert result == llm_client.LlmApiFailed(reason="invalid_service_account_json")

@@ -19,6 +19,7 @@ import httpx
 from google import genai
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport import requests as google_auth_requests
+from google.auth.transport.requests import AuthorizedSession
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from google.oauth2 import service_account
@@ -26,6 +27,7 @@ from google.oauth2 import service_account
 _VERTEX_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 _VERTEX_LOCATION = "us-central1"
 _REQUEST_TIMEOUT_MS = 10_000
+_RESOURCE_MANAGER_SEARCH_URL = "https://cloudresourcemanager.googleapis.com/v3/projects:search"
 
 # The only values from a visitor-supplied service-account JSON that
 # google.oauth2.service_account.Credentials uses to pick the destination of
@@ -48,6 +50,11 @@ class LlmModelsListed:
 class VertexModelsListed:
     project_id: str
     models: list[str]
+
+
+@dataclasses.dataclass(frozen=True)
+class VertexProjectsListed:
+    projects: list[str]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -229,6 +236,50 @@ async def list_vertex_models(
     finally:
         await client.aio.aclose()
     return VertexModelsListed(project_id=used_project, models=models)
+
+
+async def list_accessible_projects(
+    service_account_key_b64: str,
+) -> VertexProjectsListed | LlmApiFailed:
+    """Every GCP project this credential's IAM bindings let it act against,
+    via Cloud Resource Manager's projects:search -- mirroring the sibling
+    review-engine project's providers/catalog.py::list_accessible_projects.
+
+    NOT derivable from the key: a service account's own project_id names
+    only its "home" project, but the same account can hold roles on others,
+    and pr-review-bot's factory.py passes vertex_gcp_project straight
+    through without ever checking it against the key's project_id. Offering
+    only the home project would therefore hide valid choices.
+
+    Credentials come from _vertex_credentials_and_project so this shares the
+    one token_uri/universe_domain SSRF guard rather than growing a second,
+    slightly-different copy of it. Never logs the key or its contents.
+    """
+    result = _vertex_credentials_and_project(service_account_key_b64)
+    if isinstance(result, LlmApiFailed):
+        return result
+    creds, own_project_id = result
+
+    def _search() -> list[str]:
+        # AuthorizedSession is requests-based and fully synchronous --
+        # including the token refresh it performs internally -- so the whole
+        # call runs off the event loop, same rule as creds.refresh above.
+        session = AuthorizedSession(creds)
+        response = session.get(
+            _RESOURCE_MANAGER_SEARCH_URL, timeout=_REQUEST_TIMEOUT_MS / 1000
+        )
+        response.raise_for_status()
+        return [p["projectId"] for p in response.json().get("projects", []) if p.get("projectId")]
+
+    try:
+        found = await asyncio.to_thread(_search)
+    except Exception:  # noqa: BLE001 -- see below
+        # Deliberately broad, and deliberately silent about the cause: this
+        # call's failure modes span requests, google-auth and JSON decoding,
+        # and every one of them can carry credential-derived detail in its
+        # message. A structural verdict is all the caller needs.
+        return LlmApiFailed(reason="vertex_projects_unavailable")
+    return VertexProjectsListed(projects=sorted(set(found) | {own_project_id}))
 
 
 async def list_groq_models(api_key: str) -> LlmModelsListed | LlmApiFailed:
