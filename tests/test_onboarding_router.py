@@ -4,6 +4,9 @@ serves the wizard page. See design doc section 5."""
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from httpx import ASGITransport, AsyncClient
 
 import github_client
@@ -14,6 +17,12 @@ import session_store
 import supabase_client
 import uptimerobot_client
 from main import app
+
+CONTRACT = json.loads(
+    (Path(__file__).resolve().parent.parent / "contracts/provisioning.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 SENTINEL_KEY = "rnd_SENTINEL_DO_NOT_LOG_9f3a"
 # PEM-shaped so a leak would be unmistakable in a diff or a response body.
@@ -2012,3 +2021,31 @@ async def test_deploy_status_endpoint_with_cleared_pending_deploy_id_fails_close
         "/api/render/deploy-status", cookies={"onboarding_session": session_id}
     )
     assert resp.json() == {"valid": False, "reason": "no_session"}
+
+
+async def test_vertex_locations_endpoint_serves_the_contract_list_in_order():
+    """Rendered as received -- the contract's order is a curated geographic
+    grouping, not alphabetical, and the dropdown preserves it."""
+    client = await _client()
+    resp = await client.get("/api/llm/vertex/locations")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "locations": CONTRACT["vertex_locations"]["options"],
+        "default": CONTRACT["vertex_locations"]["default"],
+    }
+
+
+def test_only_contract_declared_locations_are_accepted():
+    """A location is part of the Vertex hostname -- an allowlist, never a
+    pattern. See the spec's section 3."""
+    assert router._valid_vertex_location("us-central1")
+    assert not router._valid_vertex_location("evil-attacker-host")
+    assert not router._valid_vertex_location("")
+    assert not router._valid_vertex_location("us-central1.evil.com")
+
+
+def test_project_ids_are_pattern_checked():
+    assert router._valid_vertex_project("my-project-123")
+    assert not router._valid_vertex_project("Bad_Project")
+    assert not router._valid_vertex_project("x")
+    assert not router._valid_vertex_project("")

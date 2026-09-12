@@ -6,7 +6,9 @@ returns a verdict, never the credential it was given.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import secrets as _secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+# The vendored bot contract -- same read shape as
+# tests/test_model_validation_conformance.py and
+# tests/test_bot_contract_parity.py use. Read once at import time: the
+# contract is a committed file, never changes at runtime, and every
+# consumer below needs the same parsed dict.
+_CONTRACT = json.loads(
+    (Path(__file__).parent / "contracts/provisioning.json").read_text(encoding="utf-8")
+)
 
 SESSION_COOKIE_NAME = "onboarding_session"
 
@@ -169,6 +180,29 @@ class DashboardAuthConfirmRequest(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=8, max_length=256)
     session_secret: str = Field(min_length=32, max_length=256)
+
+
+# A Vertex location is part of the outbound hostname
+# ({location}-aiplatform.googleapis.com), so every submitted value is pinned
+# to the set the bot's contract declares -- an allowlist, never a pattern.
+# "evil-attacker-host" satisfies any reasonable regex; membership is what
+# makes the reachable-host set closed by construction. Same vulnerability
+# class as the token_uri/universe_domain finding in ISSUES.md.
+_VERTEX_LOCATIONS: tuple[str, ...] = tuple(_CONTRACT["vertex_locations"]["options"])
+_VERTEX_DEFAULT_LOCATION: str = _CONTRACT["vertex_locations"]["default"]
+
+# GCP's own project-id rule. A project is a path segment, not a host, so this
+# is a clarity check rather than a security boundary -- it turns a malformed
+# value into a clear verdict instead of an opaque Google API error.
+_VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+
+
+def _valid_vertex_location(value: str) -> bool:
+    return value in _VERTEX_LOCATIONS
+
+
+def _valid_vertex_project(value: str) -> bool:
+    return bool(_VERTEX_PROJECT_RE.fullmatch(value))
 
 
 # Paired comment with the sibling review-engine project's (~/pr-review-bot)
@@ -728,6 +762,16 @@ async def list_groq_models(payload: LlmGroqListModelsRequest) -> dict:
     if isinstance(result, llm_client.LlmModelsListed):
         return {"valid": True, "models": result.models}
     return {"valid": False, "reason": result.reason}
+
+
+@router.get("/api/llm/vertex/locations")
+async def get_vertex_locations() -> dict:
+    """A static reference list, not a live call -- there is no API that
+    enumerates generative-model-enabled regions per project (see the bot's
+    catalog.VERTEX_CATALOG_LOCATIONS docstring). Served rather than
+    templated into the page: index.html templates exactly one value
+    (supabase_oauth_client_id) and that stays true."""
+    return {"locations": list(_VERTEX_LOCATIONS), "default": _VERTEX_DEFAULT_LOCATION}
 
 
 @router.post("/api/llm/vertex/list-models")
