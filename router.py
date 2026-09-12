@@ -1058,7 +1058,10 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
         probe: llm_client.LlmModelProbed | llm_client.LlmApiFailed | None = None
         if provider == "vertex":
             probe = await llm_client.probe_vertex_model(
-                llm_provider["credential_value"], llm_provider["model"]
+                llm_provider["credential_value"],
+                llm_provider["model"],
+                project=llm_provider.get("vertex_gcp_project"),
+                location=llm_provider.get("vertex_gcp_location"),
             )
         elif provider == "gemini":
             probe = await llm_client.probe_gemini_model(
@@ -1066,23 +1069,22 @@ async def bulk_push_render_env_vars(request: Request) -> dict:
             )
         if isinstance(probe, llm_client.LlmApiFailed):
             return {"valid": False, "reason": probe.reason, "pushed": []}
-        # No project/location collection UI exists in this wizard (never
-        # did) -- vertex_gcp_project stays None so pr-review-bot's own
-        # factory.py derives it from the service-account key's embedded
-        # project_id, exactly as it already did when this wizard never
-        # pushed VERTEX_GCP_PROJECT either. vertex_gcp_location preserves
-        # the same default this wizard used to push as a plain Render env
-        # var, now written to the DB instead -- read from llm_client's own
-        # constant rather than a second hardcoded copy, so the region a
-        # credential's models were validated against during list-models is
-        # always the same region seeded here.
+        # vertex_gcp_project/vertex_gcp_location now carry the visitor's own
+        # verified choice, written by /api/llm/confirm -- the LLM-provider
+        # frame collects and probes this exact pair before it ever reaches
+        # here. This probe is retained as the correctness gate anyway
+        # (not merely for its side effect of re-confirming what confirm
+        # already proved): a reload never re-runs /api/llm/confirm, and
+        # session_store.SESSION_TTL is 4 hours, so a credential revoked or a
+        # model retired between the two frames would otherwise reach
+        # slot_config unchecked.
         seeded = await asyncio.to_thread(
             _seed_provider_config,
             supabase["database_url"],
             llm_provider["provider"],
             llm_provider["model"],
-            None,
-            llm_client._VERTEX_LOCATION if llm_provider["provider"] == "vertex" else None,
+            llm_provider.get("vertex_gcp_project"),
+            llm_provider.get("vertex_gcp_location"),
         )
         if not seeded:
             return {"valid": False, "reason": "slot_config_seed_failed", "pushed": []}

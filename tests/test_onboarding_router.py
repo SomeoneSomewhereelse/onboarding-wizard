@@ -1850,18 +1850,24 @@ def test_seed_provider_config_returns_false_on_an_unreachable_database():
 
 
 async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
-    """No project/location collection UI exists in this wizard -- vertex's
-    location falls back to the same "us-central1" default it used to push
-    as a plain Render env var, now written to slot_config instead. Project
-    stays None so pr-review-bot's own factory.py derives it from the
-    service-account key's embedded project_id."""
+    """The LLM-provider frame now always collects and probes the visitor's
+    own project/region pair for vertex (/api/llm/confirm requires it), so
+    the llm_provider frame's stored vertex_gcp_project/vertex_gcp_location
+    are what gets seeded here -- not a None/"us-central1" fallback, which
+    was this wizard's pre-project/region-collection behaviour."""
     fake = _use_fake_session_store(monkeypatch)
     session_id = fake.create_session()
     fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
     fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
     fake.update_frame(
         session_id, "llm_provider",
-        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-2.5-flash"},
+        {
+            "provider": "vertex",
+            "credential_value": "b64-key",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "my-project",
+            "vertex_gcp_location": "us-central1",
+        },
     )
     seeded = {}
 
@@ -1872,7 +1878,7 @@ async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
-    async def fake_probe_vertex_model(service_account_key_b64, model):
+    async def fake_probe_vertex_model(service_account_key_b64, model, project=None, location=None):
         return llm_client.LlmModelProbed(model=model)
 
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
@@ -1884,7 +1890,7 @@ async def test_bulk_push_seeds_vertex_location_default(monkeypatch):
     )
     assert resp.json()["valid"] is True
     assert seeded["args"] == (
-        "postgresql://x", "vertex", "gemini-2.5-flash", None, "us-central1",
+        "postgresql://x", "vertex", "gemini-2.5-flash", "my-project", "us-central1",
     )
 
 
@@ -1901,7 +1907,13 @@ async def test_bulk_push_refuses_before_seeding_when_the_model_probe_fails(monke
     fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
     fake.update_frame(
         session_id, "llm_provider",
-        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-3.1-flash-lite"},
+        {
+            "provider": "vertex",
+            "credential_value": "b64-key",
+            "model": "gemini-3.1-flash-lite",
+            "vertex_gcp_project": "my-project",
+            "vertex_gcp_location": "us-central1",
+        },
     )
 
     def boom_seed(*a, **k):
@@ -1910,7 +1922,7 @@ async def test_bulk_push_refuses_before_seeding_when_the_model_probe_fails(monke
     def boom_push(*a, **k):
         raise AssertionError("push_env_vars must not run when the probe fails")
 
-    async def fake_probe_vertex_model(service_account_key_b64, model):
+    async def fake_probe_vertex_model(service_account_key_b64, model, project=None, location=None):
         return llm_client.LlmApiFailed(reason="model_not_callable")
 
     monkeypatch.setattr(router, "_seed_provider_config", boom_seed)
@@ -2042,18 +2054,26 @@ async def test_bulk_push_refuses_when_llm_provider_present_without_database_url(
     assert resp.json() == {"valid": False, "reason": "supabase_not_ready", "pushed": []}
 
 
-async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypatch):
-    """The seeded vertex_gcp_location must track llm_client._VERTEX_LOCATION
-    (the region a credential's models were actually validated against
-    during list-models), not an independently hardcoded literal that could
-    drift from it."""
+async def test_bulk_push_seeds_vertex_location_from_the_stored_pair_not_the_module_constant(
+    monkeypatch,
+):
+    """The seeded vertex_gcp_location must track the session's own stored
+    vertex_gcp_location -- written by /api/llm/confirm from the visitor's
+    dropdown choice -- not llm_client._VERTEX_LOCATION. Changing the module
+    constant must have no effect on what gets seeded."""
     fake = _use_fake_session_store(monkeypatch)
     session_id = fake.create_session()
     fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
     fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
     fake.update_frame(
         session_id, "llm_provider",
-        {"provider": "vertex", "credential_value": "b64-key", "model": "gemini-2.5-flash"},
+        {
+            "provider": "vertex",
+            "credential_value": "b64-key",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "my-project",
+            "vertex_gcp_location": "europe-west4",
+        },
     )
     seeded = {}
 
@@ -2064,7 +2084,7 @@ async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypa
     async def fake_push_env_vars(api_key, service_id, values):
         return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
 
-    async def fake_probe_vertex_model(service_account_key_b64, model):
+    async def fake_probe_vertex_model(service_account_key_b64, model, project=None, location=None):
         return llm_client.LlmModelProbed(model=model)
 
     monkeypatch.setattr(router, "_seed_provider_config", fake_seed_provider_config)
@@ -2073,7 +2093,49 @@ async def test_bulk_push_seeds_vertex_location_from_llm_client_constant(monkeypa
     monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe_vertex_model)
     client = await _client()
     await client.post("/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id})
-    assert seeded["location"] == "some-other-region"
+    assert seeded["location"] == "europe-west4"
+
+
+async def test_bulk_push_seeds_and_probes_the_visitors_chosen_pair(monkeypatch):
+    """The backstop must re-verify, and seed, the same pair the frame
+    confirmed -- not the key's home project at a hardcoded region."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    fake.update_frame(session_id, "render", {"api_key": "rnd_x", "service_id": "srv-1"})
+    fake.update_frame(session_id, "supabase", {"database_url": "postgresql://x"})
+    fake.update_frame(
+        session_id, "llm_provider",
+        {
+            "provider": "vertex",
+            "credential_value": "b64",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "chosen-proj",
+            "vertex_gcp_location": "europe-west4",
+        },
+    )
+    seeded, probed = {}, {}
+
+    def fake_seed(database_url, provider, model, project, location):
+        seeded.update(project=project, location=location)
+        return True
+
+    async def fake_probe(b64, model, project=None, location=None):
+        probed.update(project=project, location=location)
+        return llm_client.LlmModelProbed(model=model)
+
+    async def fake_push_env_vars(api_key, service_id, values):
+        return render_client.RenderEnvVarsPushed(pushed=list(values.keys()))
+
+    monkeypatch.setattr(router, "_seed_provider_config", fake_seed)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe)
+    monkeypatch.setattr(render_client, "push_env_vars", fake_push_env_vars)
+    client = await _client()
+    resp = await client.post(
+        "/api/render/bulk-push-env-vars", cookies={"onboarding_session": session_id}
+    )
+    assert resp.json()["valid"] is True
+    assert probed == {"project": "chosen-proj", "location": "europe-west4"}
+    assert seeded == {"project": "chosen-proj", "location": "europe-west4"}
 
 
 async def test_bulk_push_reads_the_session_exactly_once(monkeypatch):
