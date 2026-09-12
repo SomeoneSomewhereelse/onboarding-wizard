@@ -1290,6 +1290,11 @@ async def test_github_push_render_vars_endpoint_is_gone():
 async def test_confirm_llm_provider_persists_to_session(monkeypatch):
     fake = _use_fake_session_store(monkeypatch)
     session_id = fake.create_session()
+
+    async def fake_probe_gemini_model(api_key, model):
+        return llm_client.LlmModelProbed(model=model)
+
+    monkeypatch.setattr(llm_client, "probe_gemini_model", fake_probe_gemini_model)
     client = await _client()
     resp = await client.post(
         "/api/llm/confirm",
@@ -1307,6 +1312,94 @@ async def test_confirm_llm_provider_persists_to_session(monkeypatch):
         "credential_value": "AIzaSy...",
         "model": "gemini-flash-latest",
     }
+
+
+async def test_confirm_probes_the_pair_the_visitor_chose(monkeypatch):
+    """The pair that is verified must be the pair that gets provisioned --
+    probing the key's home project while seeding a different one is the
+    defect this whole frame exists to close."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+    seen = {}
+
+    async def fake_probe(b64, model, project=None, location=None):
+        seen.update(project=project, location=location, model=model)
+        return llm_client.LlmModelProbed(model=model)
+
+    monkeypatch.setattr(llm_client, "probe_vertex_model", fake_probe)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={
+            "provider": "vertex",
+            "credential_value": "b64",
+            "model": "gemini-2.5-flash",
+            "vertex_gcp_project": "chosen-proj",
+            "vertex_gcp_location": "europe-west4",
+        },
+        cookies={"onboarding_session": session_id},
+    )
+    assert resp.json() == {"valid": True}
+    assert seen == {
+        "project": "chosen-proj", "location": "europe-west4", "model": "gemini-2.5-flash"
+    }
+    assert fake.read_frame(session_id, "llm_provider") == {
+        "provider": "vertex",
+        "credential_value": "b64",
+        "model": "gemini-2.5-flash",
+        "vertex_gcp_project": "chosen-proj",
+        "vertex_gcp_location": "europe-west4",
+    }
+
+
+async def test_confirm_refuses_an_uncallable_model_and_writes_nothing(monkeypatch):
+    """A refused model must never become session state -- otherwise
+    GET /api/session reports the frame done behind an uncallable model."""
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+
+    async def fake_probe(api_key, model):
+        return llm_client.LlmApiFailed(reason="model_not_callable")
+
+    monkeypatch.setattr(llm_client, "probe_gemini_model", fake_probe)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={"provider": "gemini", "credential_value": "k", "model": "nope"},
+        cookies={"onboarding_session": session_id},
+    )
+    assert resp.json() == {"valid": False, "reason": "model_not_callable"}
+    assert fake.read_frame(session_id, "llm_provider") in (None, {})
+
+
+async def test_confirm_never_probes_groq(monkeypatch):
+    fake = _use_fake_session_store(monkeypatch)
+    session_id = fake.create_session()
+
+    async def boom(*a, **k):
+        raise AssertionError("groq needs no probe -- see the contract")
+
+    monkeypatch.setattr(llm_client, "probe_gemini_model", boom)
+    monkeypatch.setattr(llm_client, "probe_vertex_model", boom)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={"provider": "groq", "credential_value": "k", "model": "llama-3.3-70b"},
+        cookies={"onboarding_session": session_id},
+    )
+    assert resp.json() == {"valid": True}
+
+
+async def test_confirm_refuses_a_vertex_submission_missing_its_pair(monkeypatch):
+    _use_fake_session_store(monkeypatch)
+    client = await _client()
+    resp = await client.post(
+        "/api/llm/confirm",
+        json={"provider": "vertex", "credential_value": "b64", "model": "m"},
+    )
+    # main.py's app-wide handler -- the rejected body is never echoed back.
+    assert resp.status_code == 422
+    assert resp.json() == {"detail": "invalid request"}
 
 
 async def test_confirm_llm_provider_with_no_session_fails_closed():

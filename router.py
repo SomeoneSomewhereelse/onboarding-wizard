@@ -16,7 +16,7 @@ from pathlib import Path
 import psycopg
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 import github_client
 import llm_client
@@ -176,6 +176,22 @@ class LlmConfirmRequest(BaseModel):
     provider: str = Field(pattern=r"^(gemini|groq|vertex)$")
     credential_value: str = Field(min_length=1, max_length=16384)
     model: str = Field(min_length=1, max_length=256)
+    vertex_gcp_project: str | None = None
+    vertex_gcp_location: str | None = None
+
+    @model_validator(mode="after")
+    def _pair_belongs_to_vertex_only(self) -> "LlmConfirmRequest":
+        """Field() alone cannot say "required only when a sibling field has
+        one particular value". A gemini/groq submission carrying a region is
+        a malformed request, not a field to quietly ignore."""
+        has_pair = self.vertex_gcp_project is not None and self.vertex_gcp_location is not None
+        if self.provider == "vertex" and not has_pair:
+            raise ValueError("vertex requires a project and a location")
+        if self.provider != "vertex" and (
+            self.vertex_gcp_project is not None or self.vertex_gcp_location is not None
+        ):
+            raise ValueError("only vertex carries a project/location")
+        return self
 
 
 class DashboardAuthConfirmRequest(BaseModel):
@@ -810,15 +826,41 @@ async def confirm_llm_provider(payload: LlmConfirmRequest, request: Request) -> 
     session_id = _get_session_id(request)
     if session_id is None or (await _get_session(session_id)) is None:
         return {"valid": False, "reason": "no_session"}
-    write_result = await _update_frame(
-        session_id,
-        "llm_provider",
-        {
-            "provider": payload.provider,
-            "credential_value": payload.credential_value,
-            "model": payload.model,
-        },
-    )
+
+    if payload.provider == "vertex":
+        if not _valid_vertex_location(payload.vertex_gcp_location):
+            return {"valid": False, "reason": "invalid_vertex_location"}
+        if not _valid_vertex_project(payload.vertex_gcp_project):
+            return {"valid": False, "reason": "invalid_vertex_project"}
+
+    # Prove the model is callable BEFORE it becomes session state -- same
+    # ordering rule bulk_push_render_env_vars already follows, one frame
+    # earlier, so a refused model never reaches GET /api/session as "done".
+    # For vertex this probes the exact project/region pair the visitor
+    # chose, which is the same pair _seed_provider_config will write.
+    # Groq needs no probe (contracts/provisioning.json's model_validation).
+    probe: llm_client.LlmModelProbed | llm_client.LlmApiFailed | None = None
+    if payload.provider == "vertex":
+        probe = await llm_client.probe_vertex_model(
+            payload.credential_value,
+            payload.model,
+            project=payload.vertex_gcp_project,
+            location=payload.vertex_gcp_location,
+        )
+    elif payload.provider == "gemini":
+        probe = await llm_client.probe_gemini_model(payload.credential_value, payload.model)
+    if isinstance(probe, llm_client.LlmApiFailed):
+        return {"valid": False, "reason": probe.reason}
+
+    frame_data = {
+        "provider": payload.provider,
+        "credential_value": payload.credential_value,
+        "model": payload.model,
+    }
+    if payload.provider == "vertex":
+        frame_data["vertex_gcp_project"] = payload.vertex_gcp_project
+        frame_data["vertex_gcp_location"] = payload.vertex_gcp_location
+    write_result = await _update_frame(session_id, "llm_provider", frame_data)
     if isinstance(write_result, session_store.SessionNotFound):
         return {"valid": False, "reason": "no_session"}
     return {"valid": True}
