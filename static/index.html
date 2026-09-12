@@ -633,6 +633,15 @@
     outline-offset: 2px;
   }
   .file-field-name { color: var(--text-muted); font-size: 0.85rem; }
+  /* Buttons carry no margin of their own (see the primary-button rule
+     below), so a <label>/<select> pair placed directly after one --
+     the Vertex project/region pickers, right after "Validate" -- would
+     otherwise sit flush against it with no breathing room. The selects
+     already get their own top/bottom margin from the shared
+     input/select rule above; this only needs to open up the gap above
+     the section's first label. */
+  #llm-provider-vertex-pair-section { margin-top: 1rem; }
+  #llm-provider-vertex-pair-section label { display: block; }
   /* Primary action buttons carry the same ink-block character as the
      stamp/control-blue world, not a flat corporate rounded-rect: a subtle
      pressed-ink depth (inset highlight + soft outer shadow), a tighter
