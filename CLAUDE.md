@@ -613,12 +613,48 @@ not in prose about who calls you.
   deliberately rejected as guessing at API behavior this project's
   testing-hygiene discipline warns against. Do not add one without a new
   brainstorm.
-- **The frame's unlock gate requires both a live-validated credential AND
-  an explicit model pick** — there is no fallback to any baked-in default
-  if the visitor skips picking a model. A credential that validates but
-  returns zero eligible models is a genuine dead end under this gate; it
-  gets its own distinct error message (`err_llm_no_models_available`)
-  rather than folding into a generic validation failure.
+- **The frame's unlock gate requires a live-validated credential, an
+  explicit model pick, AND a passing live entitlement probe — for vertex,
+  also an explicit project/region pick** (2026-09-12, generalizing an
+  earlier "credential + model" gate). There is no fallback to any
+  baked-in default if the visitor skips picking a model. A credential that
+  validates but returns zero eligible models is a genuine dead end under
+  this gate; it gets its own distinct error message
+  (`err_llm_no_models_available`) rather than folding into a generic
+  validation failure.
+- **The entitlement probe runs at `POST /api/llm/confirm`, before the
+  session write — not only at the final "Finish & Deploy" backstop.**
+  `list_vertex_models`/`list_gemini_models` only prove a credential
+  authenticates and a model is *listed*; for Vertex that's essentially the
+  global Model Garden, not a per-project entitlement list, so a visitor
+  used to sail through three more frames before discovering
+  `model_not_callable` at the very last step. `confirm_llm_provider`
+  (`router.py`) now probes (`probe_vertex_model`/`probe_gemini_model`,
+  groq needs none — see `contracts/provisioning.json`'s
+  `model_validation` block) *before* `_update_frame`, so a refused model
+  never becomes session state and `GET /api/session` can never report the
+  frame done behind an uncallable model. The Finish & Deploy probe stays
+  in place as the correctness gate underneath it — a reload never re-runs
+  `/api/llm/confirm`, and `session_store.SESSION_TTL` is 4 hours, so a
+  credential revoked or a model retired between the two frames would
+  otherwise reach `slot_config` unchecked. **The pair actually probed at
+  `/api/llm/confirm` is the same pair written to the session, and the pair
+  the Finish & Deploy backstop later re-probes and seeds** — `router.py`
+  refuses with `vertex_pair_missing` rather than silently falling back to
+  `None`/`None` if a stale or pre-upgrade session ever reaches the
+  backstop with the frame present but the pair absent or no longer in the
+  allowlist.
+- **A Vertex `location` is part of the outbound hostname
+  (`{location}-aiplatform.googleapis.com`), so every submitted value —
+  at `GET /api/llm/vertex/locations`'s sibling POST endpoints and at
+  `/api/llm/confirm` — is checked against `router._VERTEX_LOCATIONS`, an
+  allowlist read from the vendored contract's `vertex_locations.options`,
+  never a regex/shape check.** This is the same vulnerability class as the
+  `token_uri`/`universe_domain` SSRF finding below: inert-looking routing
+  metadata that controls which host this server issues an authenticated
+  outbound request to. `project` is pattern-checked
+  (`router._valid_vertex_project`) for a clear-verdict reason, not a
+  security boundary — a project id is a path segment, not a host.
 - **No operator-level settings were added for this sub-project** — unlike
   Supabase's OAuth app, every credential here is visitor-supplied per
   request. `config.py` and `main.py`'s `lifespan` are
@@ -835,14 +871,22 @@ not in prose about who calls you.
   `_KEY_INDEX_COLUMNS` dict (duplicated from that project's
   `providers/registry.py::KEY_INDEX_COLUMNS`) keyed by `provider`, never
   built from it directly — that dict IS the injection guard for the
-  f-string that names the column. `vertex_gcp_project` is always written
-  `NULL` (no project-collection UI exists in this wizard; that project's
-  `factory.py` derives it from the service-account key's own embedded
-  `project_id` when the DB value is empty) and `vertex_gcp_location` is
-  written `"us-central1"` for vertex only (that project's `factory.py`
-  raises if location resolves empty, with no fallback of its own — this is
-  the one field this wizard *must* seed for a vertex credential to be
-  usable at all).
+  f-string that names the column. **A project/region collection UI now
+  exists in this wizard (2026-09-12) — see the sub-project 4 section
+  above.** `vertex_gcp_project`/`vertex_gcp_location` are no longer
+  `NULL`/hardcoded `"us-central1"` for every vertex credential: they carry
+  the visitor's own verified choice, collected in the LLM-provider frame
+  and probed against there (`/api/llm/confirm`) before this seed re-probes
+  and writes the same pair. For a visitor who keeps the default selection
+  the seeded project is the same string that project's `factory.py` would
+  have derived from the key's own embedded `project_id` anyway; for a
+  visitor who picks another project, the seeded value is the correct one
+  and the old derivation would have been wrong. `factory.py` still raises
+  if location resolves empty with no fallback of its own — `router.py`
+  refuses with `vertex_pair_missing` before ever reaching this seed if the
+  session's stored pair is absent or the location is no longer in the
+  contract allowlist (a pre-upgrade session, `session_store.SESSION_TTL`
+  is 4 hours), rather than silently seeding `NULL`/an unvalidated value.
   **This seed runs before the Render push, and a seed failure refuses the
   whole call (`{"valid": false, "reason": "slot_config_seed_failed"}`)
   without ever calling `render_client.push_env_vars`** — the visitor must
@@ -951,12 +995,15 @@ not in prose about who calls you.
   superseded an earlier version of this bullet (through 9de5f04) that still
   said `VERTEX_GCP_LOCATION` **is** pushed via `_GENERIC_OPERATIONAL_ENV_DEFAULTS`
   — true before that commit, false after it: that dict now holds only
-  `GITHUB_TARGET_REPO`, and location is seeded into `slot_config.vertex_gcp_location`
-  instead (`"us-central1"`, read from `llm_client._VERTEX_LOCATION` so it
-  can't drift from the region a credential's models were actually validated
-  against — not a second hardcoded literal). Do not re-add either var to
-  `_GENERIC_OPERATIONAL_ENV_DEFAULTS` without a concrete reason the
-  slot_config-seeding path has stopped covering it.
+  `GITHUB_TARGET_REPO`, and both values are seeded into
+  `slot_config.vertex_gcp_project`/`vertex_gcp_location` instead. As of
+  2026-09-12 (see the sub-project 4 section above), both are the visitor's
+  own verified choice from the LLM-provider frame's project/region
+  dropdowns, not a hardcoded `"us-central1"`/derived-at-runtime pair —
+  `location` is pinned to the vendored contract's allowlist at every entry
+  point that accepts one, since it's part of the outbound Vertex hostname.
+  Do not re-add either var to `_GENERIC_OPERATIONAL_ENV_DEFAULTS` without a
+  concrete reason the slot_config-seeding path has stopped covering it.
 - **`GITHUB_TARGET_REPO` is pushed as `"*"` (2026-09-07), reversing the
   original "never pushed" decision above.** The sibling review-engine
   project's `main.py` lifespan now refuses to boot at all without this set

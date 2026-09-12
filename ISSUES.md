@@ -275,6 +275,18 @@ accidentally exercise the refusal path instead of the real one._
 - **Why parked:** Cosmetic — a future `httpx` major version could turn this into a hard error, but nothing is broken today, and fixing dozens of call sites across the file isn't warranted by a routine CI-log check alone.
 - **Follow-up:** When `test_onboarding_router.py` is next substantially touched, switch its session-cookie fixture(s) to set `onboarding_session` once via `client.cookies.set(...)` (or a fixture-level default) instead of passing `cookies=` per call, and drop the per-call kwarg from every call site.
 
+### `/api/llm/confirm` uses a merge write, not `replace=True`
+- **Found during:** Final review, `docs/superpowers/plans/2026-09-12-wizard-vertex-project-location-and-early-model-probe.md` (spec section 8, logged as part of that work per its own instruction).
+- **What:** A failed re-submit via "Change" leaves the previously confirmed provider/model/pair in the session while the UI shows the frame errored. Concretely, a visitor who first confirms vertex (writing `vertex_gcp_project`/`vertex_gcp_location`) and then redoes the frame as gemini/groq leaves those two fields sitting in the same frame dict alongside the new provider's fields — `bulk_push_render_env_vars` now guards against seeding them onto the wrong provider's `slot_config` row (only passes them when `provider == "vertex"`), so this is harmless in practice, but the merge write is still the root cause.
+- **Why parked:** Pre-existing, shared with every other frame's failed resubmit (not introduced by this work); whether `confirm` counts as a "start this frame over" endpoint under `CLAUDE.md`'s `replace=True` rule is a separate design question from this feature.
+- **Follow-up:** Decide whether `/api/llm/confirm` should adopt `replace=True` the way `validate-key`/`connect` do, in a dedicated design pass — not a quick fix bundled into an unrelated task.
+
+### `list_accessible_projects` doesn't page through `projects:search`'s `nextPageToken`
+- **Found during:** Final review (Opus reviewer subagent), same plan as above.
+- **What:** Cloud Resource Manager's `projects:search` is paginated; `llm_client.list_accessible_projects` only reads the first page. A service account with more projects than fit in one page silently loses the rest from the wizard's project dropdown, and a visitor whose intended project falls on page 2+ has no way to pick it.
+- **Why parked:** This is not a regression introduced by this wizard — it faithfully mirrors the sibling `pr-review-bot` project's own reference implementation (`providers/catalog.py::list_accessible_projects`), which has the identical single-page limitation. Diverging from the mirrored behavior here (without a matching fix upstream) would itself be a new inconsistency between the two repos. Low likelihood in practice (a service account with many dozens of accessible GCP projects).
+- **Follow-up:** If ever addressed, fix both repos together (or fix the bot's version first and re-mirror), following the `uptimerobot_client.py` dedupe-before-create precedent (`_MAX_LIST_PAGES`, follow `nextLink`) for the pagination shape.
+
 ---
 
 ## Design Gaps
