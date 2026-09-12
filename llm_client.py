@@ -163,11 +163,22 @@ def _vertex_credentials_and_project(
     return creds, project_id
 
 
-async def list_vertex_models(service_account_key_b64: str) -> VertexModelsListed | LlmApiFailed:
+async def list_vertex_models(
+    service_account_key_b64: str,
+    project: str | None = None,
+    location: str | None = None,
+) -> VertexModelsListed | LlmApiFailed:
     """Live models-listing call against Vertex AI, authenticated as the
-    submitted GCP service account. Location is fixed to us-central1 (spec
-    section 2); project is read from the key's own project_id field. Never
-    logs the decoded key or its contents.
+    submitted GCP service account. `project`/`location` default to the
+    key's own project_id and this module's _VERTEX_LOCATION; a caller that
+    already knows the exact provisioning target can override either --
+    mirrors probe_vertex_model's own override shape. Never logs the decoded
+    key or its contents.
+
+    VertexModelsListed.project_id reports the project actually queried
+    (the override when given, else the key's home project), never the
+    key's home project unconditionally -- conflating the two is how a
+    listing gets attributed to the wrong pair.
 
     WHAT THIS LIST IS NOT: Vertex's models.list() returns essentially the
     global Model Garden catalog, not a per-project entitlement list --
@@ -183,11 +194,12 @@ async def list_vertex_models(service_account_key_b64: str) -> VertexModelsListed
     if isinstance(result, LlmApiFailed):
         return result
     creds, project_id = result
+    used_project = project or project_id
 
     client = genai.Client(
         vertexai=True,
-        project=project_id,
-        location=_VERTEX_LOCATION,
+        project=used_project,
+        location=location or _VERTEX_LOCATION,
         credentials=creds,
         http_options=genai_types.HttpOptions(timeout=_REQUEST_TIMEOUT_MS),
     )
@@ -216,7 +228,7 @@ async def list_vertex_models(service_account_key_b64: str) -> VertexModelsListed
         return LlmApiFailed(reason="provider_unreachable")
     finally:
         await client.aio.aclose()
-    return VertexModelsListed(project_id=project_id, models=models)
+    return VertexModelsListed(project_id=used_project, models=models)
 
 
 async def list_groq_models(api_key: str) -> LlmModelsListed | LlmApiFailed:

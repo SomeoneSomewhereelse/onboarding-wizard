@@ -305,6 +305,27 @@ async def test_list_vertex_models_constructs_client_with_project_and_fixed_locat
     assert _FakeClient.last_kwargs["location"] == "us-central1"
 
 
+async def test_list_vertex_models_defaults_to_the_keys_own_project_and_region(monkeypatch):
+    _install_fake_client(monkeypatch, models=[_model("publishers/google/models/m1")])
+    result = await llm_client.list_vertex_models(_b64(_SENTINEL_SERVICE_ACCOUNT))
+    assert _FakeClient.last_kwargs["project"] == "sentinel-project"
+    assert _FakeClient.last_kwargs["location"] == "us-central1"
+    assert result.project_id == "sentinel-project"
+
+
+async def test_list_vertex_models_honours_an_explicit_pair(monkeypatch):
+    _install_fake_client(monkeypatch, models=[_model("publishers/google/models/m1")])
+    result = await llm_client.list_vertex_models(
+        _b64(_SENTINEL_SERVICE_ACCOUNT), project="other-project", location="europe-west4"
+    )
+    assert _FakeClient.last_kwargs["project"] == "other-project"
+    assert _FakeClient.last_kwargs["location"] == "europe-west4"
+    # The reported project is the one actually queried, never the key's home
+    # project -- conflating them is how a verdict gets attributed to the
+    # wrong pair.
+    assert result.project_id == "other-project"
+
+
 async def test_list_vertex_models_malformed_base64_is_invalid_service_account_json():
     result = await llm_client.list_vertex_models("not-valid-base64!!!")
     assert result == llm_client.LlmApiFailed(reason="invalid_service_account_json")
