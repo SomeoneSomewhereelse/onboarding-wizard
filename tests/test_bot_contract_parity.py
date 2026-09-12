@@ -128,7 +128,7 @@ def test_the_vendored_contract_carries_the_generators_do_not_edit_marker():
     assert "scripts.gen_contract" in contract["generated_by"]
 
 
-def test_the_vendored_contract_version_is_two_this_repo_understands():
+def test_the_vendored_contract_version_is_three_this_repo_understands():
     """A shape change over there bumps contract_version (a new block, a
     renamed key, a changed entry shape) -- never an ordinary content edit.
     Reading a version this repo's assertions were not written against would
@@ -139,15 +139,30 @@ def test_the_vendored_contract_version_is_two_this_repo_understands():
     and Gemini models must be proven callable by a live probe before being
     written, because Vertex's own catalog listing is not scoped by project
     entitlement. See tests/test_model_validation_conformance.py for this
-    repo's implementation of that rule."""
-    assert _contract()["contract_version"] == 2
+    repo's implementation of that rule.
+
+    Version 3 added `vertex_locations` -- the region reference list the
+    onboarding wizard's Vertex frame renders its region dropdown from,
+    published rather than hand-copied here (see the 2026-09-09 shape this
+    guards against)."""
+    assert _contract()["contract_version"] == 3
 
 
 def test_the_vendored_contract_has_every_block_this_repo_reads():
     assert set(_contract()) == {
         "generated_by", "contract_version",
         "env_vars", "providers", "model_validation", "runtime_config", "slot_config",
+        "vertex_locations",
     }
+
+
+def test_vertex_location_allowlist_is_non_empty_and_contains_its_default():
+    """router pins every submitted location to this list (a location is part
+    of the Vertex hostname -- see the spec's section 3). An empty or
+    default-less list would silently turn that allowlist into a deny-all."""
+    block = _contract()["vertex_locations"]
+    assert block["options"], "an empty allowlist would reject every region"
+    assert block["default"] in block["options"]
 
 
 def test_vendored_contract_matches_the_bot_at_the_pinned_ref():

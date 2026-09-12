@@ -18,7 +18,7 @@ CONTRACT = json.loads((_REPO_ROOT / "contracts/provisioning.json").read_text(enc
 
 
 def test_contract_version_is_understood():
-    assert CONTRACT["contract_version"] == 2
+    assert CONTRACT["contract_version"] == 3
 
 
 def test_a_probe_exists_for_every_provider_that_requires_one():
